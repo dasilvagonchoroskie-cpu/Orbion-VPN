@@ -13,8 +13,8 @@
 # Uso: scripts/baixar-motor-tor.sh <pasta-jniLibs> <pasta-assets>
 set -euo pipefail
 
-DESTINO="${1:?informe a pasta jniLibs}"
-ASSETS="${2:?informe a pasta assets}"
+DESTINO="$(realpath -m "${1:?informe a pasta jniLibs}")"
+ASSETS="$(realpath -m "${2:?informe a pasta assets}")"
 BASE="https://dist.torproject.org/torbrowser"
 CHAVE_TOR_BROWSER="EF6E286DDA85EA2A4BA7DE684E2C6E8793298290"
 
@@ -62,7 +62,7 @@ for arq in aarch64 armv7 x86_64; do
   echo "$esperado  $nome" | sha256sum -c -
 
   mkdir -p "x-$arq" && tar -xzf "$nome" -C "x-$arq"
-  echo "Conteúdo do pacote $arq:"; find "x-$arq" -type f | sed 's/^/  /' | head -40
+  echo "::notice title=pacote $arq::$(cd "x-$arq" && find . -type f | sed 's#^\./##' | sort | tr '\n' ' ' | cut -c1-900)"
 
   tor="$(find "x-$arq" -type f \( -iname 'libtor.so' -o -name 'tor' \) | head -1)"
   lyre="$(find "x-$arq" -type f \( -iname '*lyrebird*' -o -iname '*obfs4proxy*' \) ! -name '*.json' | head -1)"

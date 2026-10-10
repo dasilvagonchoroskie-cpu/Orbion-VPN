@@ -5,7 +5,7 @@
 # Uso: scripts/compilar-hev.sh <pasta-jniLibs>
 set -euo pipefail
 
-DESTINO="${1:?informe a pasta jniLibs}"
+DESTINO="$(realpath -m "${1:?informe a pasta jniLibs}")"
 VERSAO_HEV="${HEV_VERSION:-2.18.0}"
 NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
 ABIS="arm64-v8a armeabi-v7a x86_64"
