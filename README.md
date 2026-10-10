@@ -31,7 +31,7 @@ Caminho de um pacote: app → interface da VPN → **hev-socks5-tunnel** →
 |---|---|---|
 | `libtor.so` | Tor | pacote oficial `tor-expert-bundle-android` do Tor Project (SHA-256 + assinatura GPG conferidos) |
 | `libobfs4proxy.so` | lyrebird (obfs4/meek/webtunnel) | mesmo pacote |
-| `libsnowflake.so` | Snowflake | mesmo pacote |
+| `libsnowflake.so` | Snowflake | compilado do código-fonte (Go + NDK), o pacote Android não traz mais |
 | `libhev-socks5-tunnel.so` | túnel | compilado do código-fonte (heiher/hev-socks5-tunnel) com NDK |
 | `assets/bridges_embutidas.json` | bridges públicas atuais | `pt_config.json` do pacote oficial |
 
@@ -42,5 +42,7 @@ Se o download do Tor Project falhar, entram os binários de reserva de
 
 Tudo pela esteira do GitHub (`.github/workflows/compilar-apk.yml`), a cada envio
 para `main`. Saem três APKs (arm64-v8a, armeabi-v7a, x86_64) na Release
-`apk-mais-recente`. Segredos necessários: `ORBION_KEYSTORE_BASE64` e
-`ORBION_KEYSTORE_SENHA` (alias `orbion`).
+`apk-mais-recente` quando os segredos `ORBION_KEYSTORE_BASE64` e
+`ORBION_KEYSTORE_SENHA` (alias `orbion`) existem. Sem eles, os APKs vão para
+`compilacao-interna` com chave de depuração e recebem a assinatura oficial
+fora da esteira.

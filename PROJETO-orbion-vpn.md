@@ -86,10 +86,18 @@ Interface (Flutter, `lib/`): `main.dart` (4 abas), `controlador.dart`,
 ## 6. Compilação e entrega
 
 - Esteira: `.github/workflows/compilar-apk.yml` a cada envio para `main`:
-  compila a libhev (NDK) → baixa o tor-expert-bundle Android (verificado) →
-  flutter analyze → flutter test → APKs assinados por arquitetura → Release
+  compila a libhev (NDK) → baixa o tor-expert-bundle Android (SHA-256 + GPG
+  conferidos) → compila o Snowflake (Go 1.26 + NDK, CGO, -checklinkname=0) →
+  flutter analyze → flutter test → APKs por arquitetura.
+- Assinatura: a sessão do Claude não consegue gravar segredos do GitHub (o
+  proxy bloqueia), então a esteira publica os APKs ainda com chave de
+  depuração na release `compilacao-interna` (NÃO instalar). A assinatura
+  oficial é feita fora da esteira com o apksigner, usando a chave abaixo, e o
+  APK assinado é entregue no chat.
+- Opcional (para a esteira assinar sozinha): criar no repositório os segredos
+  `ORBION_KEYSTORE_BASE64` (a chave em base64) e `ORBION_KEYSTORE_SENHA`
+  (alias `orbion`). Com eles, a esteira publica direto na release
   `apk-mais-recente`.
-- Segredos: `ORBION_KEYSTORE_BASE64`, `ORBION_KEYSTORE_SENHA` (alias `orbion`).
 - Chave: `orbion-vpn-release.jks` (PKCS12, RSA 4096, válida até 2056), DN
   "CN=Fortaleza Digital Security, OU=Desenvolvimento, O=Fortaleza Digital
   Security, L=Goiatuba, ST=Goias, C=BR", SHA-256
@@ -99,6 +107,11 @@ Interface (Flutter, `lib/`): `main.dart` (4 abas), `controlador.dart`,
 
 ## 7. Status
 
-- v6.0 em compilação/entrega (10/10/2026).
+- v6.0.0 compilada e assinada em 10/10/2026: Tor 0.4.9.13 (Tor Browser
+  15.0.24), lyrebird/obfs4, Snowflake (código-fonte), hev-socks5-tunnel 2.18.0,
+  7 bridges obfs4 + 2 snowflake embutidas. APKs: arm64-v8a (celular comum),
+  armeabi-v7a, x86_64. Ainda não testada no aparelho.
+- Pendente: versão para notebook/PC (o Orbion de computador) — fica para depois
+  do celular, decisão do Evandro em 10/10/2026.
 - Próximos passos possíveis: testar no aparelho; se o Tor ainda cair sozinho
   em segundo plano, considerar rodar o Tor dentro do processo (tor-android).
