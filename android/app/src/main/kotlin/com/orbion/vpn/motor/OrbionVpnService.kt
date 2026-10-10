@@ -148,6 +148,9 @@ class OrbionVpnService : VpnService() {
         // Sempre confirma o primeiro plano: o Android exige isso depois de um
         // startForegroundService, e não custa nada nos outros casos.
         entrarEmPrimeiroPlano(textoNotificacao, null)
+        // Quando a pessoa liga "VPN sempre ativa", o Android inicia o serviço
+        // na hora: aproveita para registrar, e o aviso some da tela.
+        atualizarInfoSempreAtiva()
         return when (acao) {
             ACAO_DESLIGAR -> {
                 desligarAPedido()
@@ -586,10 +589,16 @@ class OrbionVpnService : VpnService() {
         }, 0, 2, TimeUnit.SECONDS)
     }
 
-    private fun atualizarInfoSempreAtiva() {
+    /** Lê do Android se o Orbion está como "VPN sempre ativa" e guarda o resultado. */
+    fun atualizarInfoSempreAtiva() {
         if (Build.VERSION.SDK_INT >= 29) {
-            Painel.vpnSempreAtiva = isAlwaysOn
-            Painel.bloqueioSemVpn = isLockdownEnabled
+            try {
+                val ligada = isAlwaysOn
+                Painel.vpnSempreAtiva = ligada
+                Painel.bloqueioSemVpn = isLockdownEnabled
+                Preferencias(this).sempreAtivaConhecida = if (ligada) 1 else 0
+            } catch (_: Exception) {
+            }
         }
     }
 

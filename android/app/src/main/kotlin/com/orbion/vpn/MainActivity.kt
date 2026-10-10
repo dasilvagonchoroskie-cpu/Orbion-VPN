@@ -2,6 +2,7 @@ package com.orbion.vpn
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -12,7 +13,9 @@ import android.net.VpnService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
+import android.widget.Toast
 import com.orbion.vpn.motor.AppsProblematicos
 import com.orbion.vpn.motor.DetectorDeProblemas
 import com.orbion.vpn.motor.Diagnostico
@@ -39,11 +42,16 @@ class MainActivity : FlutterActivity() {
     private val principal = Handler(Looper.getMainLooper())
     private val fundo = Executors.newCachedThreadPool()
     private var resultadoVpnPendente: MethodChannel.Result? = null
+    private var inicioPedidoBateria = 0L
+    private var tentativasBateria = 0
+    private var pedidoBateriaAberto = false
+    private var pausouDesdeOPedido = false
 
     companion object {
         private const val CANAL = "orbion/motor"
         private const val PEDIDO_VPN = 4101
         private const val PEDIDO_NOTIFICACAO = 4102
+        private const val PEDIDO_BATERIA = 4103
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -55,6 +63,12 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         fundo.shutdown()
         super.onDestroy()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Se a pergunta de bateria do Android apareceu, ela cobre esta tela.
+        pausouDesdeOPedido = true
     }
 
     private fun atender(chamada: MethodCall, resultado: MethodChannel.Result) {
@@ -143,6 +157,16 @@ class MainActivity : FlutterActivity() {
                 val acao = chamada.argument<String>("acao") ?: ""
                 resultado.success(executarAcao(acao))
             }
+            "confirmar" -> {
+                // A pessoa confirmou um ajuste que o Android não deixa o app conferir.
+                val id = chamada.argument<String>("id") ?: ""
+                if (id.isNotEmpty()) prefs.avisosDispensados = prefs.avisosDispensados + (Diagnostico.PREFIXO + id)
+                resultado.success(prefs.comoMapa())
+            }
+            "desfazerConfirmacoes" -> {
+                prefs.avisosDispensados = prefs.avisosDispensados.filterNot { it.startsWith(Diagnostico.PREFIXO) }.toSet()
+                resultado.success(prefs.comoMapa())
+            }
             else -> resultado.notImplemented()
         }
     }
@@ -176,6 +200,13 @@ class MainActivity : FlutterActivity() {
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == PEDIDO_BATERIA) {
+            if (!pedidoBateriaAberto) return
+            pedidoBateriaAberto = false
+            val rapido = SystemClock.elapsedRealtime() - inicioPedidoBateria < 1500
+            depoisDaPerguntaDeBateria(rapido)
+            return
+        }
         if (requestCode == PEDIDO_VPN) {
             val r = resultadoVpnPendente
             resultadoVpnPendente = null
@@ -275,24 +306,21 @@ class MainActivity : FlutterActivity() {
         val notif = Build.VERSION.SDK_INT < 33 ||
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         return mapOf(
-            "bateriaIsenta" to Diagnostico.bateriaIsenta(this),
+            "bateriaIsenta" to Diagnostico.bateriaResolvida(this),
             "dnsPrivado" to dns,
             "notificacoes" to notif,
             "vpnAutorizada" to (VpnService.prepare(this) == null),
+            "sempreAtiva" to Diagnostico.sempreAtivaLigada(this),
         )
     }
 
-    @SuppressLint("BatteryLife")
-    private fun executarAcao(acao: String): Boolean = try {
-        when (acao) {
-            "ISENTAR_BATERIA" -> {
-                try {
-                    startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
-                } catch (_: Exception) {
-                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                }
-                true
-            }
+    /** Executa a ação pedida pela tela. Retorna "OK", "FALHOU" ou um código específico. */
+    private fun executarAcao(acao: String): String {
+      return try {
+        val feito = when (acao) {
+            "ISENTAR_BATERIA" -> return liberarBateria()
+            "ABRIR_BATERIA_MARCA" -> return abrirTelaDeBateria()
+            "ABRIR_AUTOSTART" -> return abrirInicioAutomatico()
             "ABRIR_DNS_PRIVADO" -> {
                 try {
                     startActivity(Intent("android.settings.PRIVATE_DNS_SETTINGS"))
@@ -348,7 +376,133 @@ class MainActivity : FlutterActivity() {
             }
             else -> false
         }
+        if (feito) "OK" else "FALHOU"
+      } catch (_: Exception) {
+        "FALHOU"
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Bateria: pergunta do Android → tela da marca → lista → informações do app
+    // ------------------------------------------------------------------
+
+    private fun existe(intent: Intent): Boolean = try {
+        intent.resolveActivity(packageManager) != null
     } catch (_: Exception) {
         false
+    }
+
+    @SuppressLint("BatteryLife")
+    private fun liberarBateria(): String {
+        val isenta = Diagnostico.bateriaIsenta(this)
+        if (isenta && !Diagnostico.ehXiaomi()) return "JA_LIBERADO"
+        // Na 1ª vez tenta a pergunta oficial do Android. Se a pessoa tocar de
+        // novo sem ter dado certo, vai direto para a tela da marca.
+        if (!isenta && tentativasBateria == 0) {
+            tentativasBateria++
+            val pergunta = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+            if (existe(pergunta)) {
+                try {
+                    inicioPedidoBateria = SystemClock.elapsedRealtime()
+                    pausouDesdeOPedido = false
+                    pedidoBateriaAberto = true
+                    @Suppress("DEPRECATION")
+                    startActivityForResult(pergunta, PEDIDO_BATERIA)
+                    // Vigia: na Xiaomi a pergunta pode simplesmente não aparecer,
+                    // sem devolver resposta nenhuma. Se em 1,6 s nada cobriu a
+                    // tela, a pergunta não apareceu.
+                    principal.postDelayed({
+                        if (pedidoBateriaAberto && !pausouDesdeOPedido) {
+                            pedidoBateriaAberto = false
+                            depoisDaPerguntaDeBateria(rapido = true)
+                        }
+                    }, 1600)
+                    return "PERGUNTA"
+                } catch (_: Exception) {
+                    pedidoBateriaAberto = false
+                }
+            }
+        }
+        return abrirTelaDeBateria()
+    }
+
+    /**
+     * Depois da pergunta do Android:
+     *  - Xiaomi: abre SEMPRE a economia de bateria da própria Xiaomi, porque é
+     *    ela que fecha os apps (a liberação do Android sozinha não basta);
+     *  - outras marcas: se a pergunta nem apareceu, abre a tela de bateria.
+     */
+    private fun depoisDaPerguntaDeBateria(rapido: Boolean) {
+        val isenta = Diagnostico.bateriaIsenta(this)
+        if (Diagnostico.ehXiaomi() || (!isenta && rapido)) abrirTelaDeBateria()
+    }
+
+    /** Mostra a instrução por ~7 s por cima da tela que abriu. */
+    private fun avisarLongo(texto: String) {
+        Toast.makeText(this, texto, Toast.LENGTH_LONG).show()
+        principal.postDelayed({ Toast.makeText(applicationContext, texto, Toast.LENGTH_LONG).show() }, 3600)
+    }
+
+    /** Abre a tela de "Início automático" (Xiaomi) ou o que houver mais perto disso. */
+    private fun abrirInicioAutomatico(): String {
+        val opcoes = mutableListOf<Triple<String, Intent, String>>()
+        if (Diagnostico.ehXiaomi()) {
+            opcoes += Triple(
+                "AUTOSTART",
+                Intent().setComponent(ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")),
+                "Procure Orbion VPN na lista e ligue a chave dele.",
+            )
+            opcoes += Triple(
+                "AUTOSTART",
+                Intent("miui.intent.action.APP_PERM_EDITOR")
+                    .setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
+                    .putExtra("extra_pkgname", packageName),
+                "Toque em \"Início automático\" e ligue.",
+            )
+        }
+        opcoes += Triple(
+            "APP_INFO",
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
+            "Procure \"Início automático\" (ou \"Inicialização automática\") e ligue.",
+        )
+        return abrirPrimeira(opcoes)
+    }
+
+    private fun abrirPrimeira(opcoes: List<Triple<String, Intent, String>>): String {
+        for ((codigo, intent, instrucao) in opcoes) {
+            if (!existe(intent)) continue
+            try {
+                startActivity(intent)
+                avisarLongo(instrucao)
+                return codigo
+            } catch (_: Exception) {
+            }
+        }
+        return "NADA"
+    }
+
+    /** Abre a primeira tela de bateria que existir neste aparelho e explica o que tocar. */
+    private fun abrirTelaDeBateria(): String {
+        val opcoes = mutableListOf<Triple<String, Intent, String>>()
+        if (Diagnostico.ehXiaomi()) {
+            opcoes += Triple(
+                "XIAOMI",
+                Intent().setComponent(ComponentName("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsConfigActivity"))
+                    .putExtra("package_name", packageName)
+                    .putExtra("package_label", "Orbion VPN"),
+                "Escolha \"Sem restrições\" e volte para o Orbion.",
+            )
+        }
+        opcoes += Triple(
+            "LISTA",
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+            "Mude a lista para \"Todos os apps\", toque em Orbion VPN e escolha \"Não otimizar\".",
+        )
+        opcoes += Triple(
+            "APP_INFO",
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
+            "Toque em Bateria (ou Economia de bateria) e escolha \"Sem restrições\".",
+        )
+        return abrirPrimeira(opcoes)
     }
 }

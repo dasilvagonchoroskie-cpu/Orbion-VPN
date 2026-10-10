@@ -70,6 +70,14 @@ class Preferencias(context: Context) {
         get() = sp.getStringSet(AVISOS_DISPENSADOS, emptySet())?.toSet() ?: emptySet()
         set(v) = sp.edit().putStringSet(AVISOS_DISPENSADOS, HashSet(v)).apply()
 
+    /**
+     * "VPN sempre ativa" como o serviço viu da última vez que rodou:
+     * -1 = nunca verificado, 0 = desligada, 1 = ligada.
+     */
+    var sempreAtivaConhecida: Int
+        get() = sp.getInt(SEMPRE_ATIVA_CONHECIDA, -1)
+        set(v) = sp.edit().putInt(SEMPRE_ATIVA_CONHECIDA, v).apply()
+
     /** A VPN estava ligada quando o app foi fechado? Usado na reabertura. */
     var estavaLigada: Boolean
         get() = sp.getBoolean(ESTAVA_LIGADA, false)
@@ -134,5 +142,6 @@ class Preferencias(context: Context) {
         private const val CONTORNO_AUTOMATICO = "contorno_automatico"
         private const val AVISOS_DISPENSADOS = "avisos_dispensados"
         private const val ESTAVA_LIGADA = "estava_ligada"
+        private const val SEMPRE_ATIVA_CONHECIDA = "sempre_ativa_conhecida"
     }
 }

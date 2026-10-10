@@ -29,4 +29,12 @@ void main() {
     expect(nomeDoCaminho('SNOWFLAKE'), contains('Snowflake'));
     expect(nomeDoCaminho('OBFS4'), contains('obfs4'));
   });
+
+  test('mensagemDaAcao explica o que fazer na tela que abriu', () {
+    expect(mensagemDaAcao('XIAOMI'), contains('Sem restrições'));
+    expect(mensagemDaAcao('LISTA'), contains('Não otimizar'));
+    expect(mensagemDaAcao('FALHOU'), contains('Configurações'));
+    expect(mensagemDaAcao('OK'), isNull);
+    expect(mensagemDaAcao('PERGUNTA'), isNull);
+  });
 }

@@ -53,7 +53,7 @@ Motor (Kotlin, `android/app/src/main/kotlin/com/orbion/vpn/motor/`):
 - `FiltroSocks` — rastreadores (assets/rastreadores.txt), desvio de serviços que barram Tor, contagem e registros
 - `TunelHev` + `hev/sockstun/TProxyService.java` — ponte JNI com a libhev-socks5-tunnel.so
 - `ResolvedorDoH` — DNS por HTTPS (1.1.1.1, 1.0.0.1, 8.8.8.8) só para o desvio direto
-- `Diagnostico` — bateria, marca do celular, VPN sempre ativa, processos filhos, notificações, DNS privado, resolução de nomes, apps incompatíveis
+- `Diagnostico` — bateria, marca do celular (Xiaomi: início automático + economia de bateria), VPN sempre ativa, processos filhos, notificações, DNS privado, resolução de nomes, apps incompatíveis; confirmações "Já fiz" guardadas com prefixo `diag:` em `avisos_dispensados`
 - `AppsProblematicos` / `DetectorDeProblemas`, `Preferencias`, `Painel`, `BootReceiver`
 
 Interface (Flutter, `lib/`): `main.dart` (4 abas), `controlador.dart`,
@@ -111,6 +111,21 @@ Interface (Flutter, `lib/`): `main.dart` (4 abas), `controlador.dart`,
   15.0.24), lyrebird/obfs4, Snowflake (código-fonte), hev-socks5-tunnel 2.18.0,
   7 bridges obfs4 + 2 snowflake embutidas. APKs: arm64-v8a (celular comum),
   armeabi-v7a, x86_64. Ainda não testada no aparelho.
+- v6.0.1 (10/10/2026), depois do primeiro teste no Xiaomi do Evandro:
+  - botão "Liberar o Orbion" não fazia nada na Xiaomi (a MIUI/HyperOS ignora
+    o pedido padrão do Android). Agora: tenta o pedido do Android; se ele não
+    aparecer (vigia de 1,6 s) — e sempre na Xiaomi — abre a "Economia de
+    bateria" da própria Xiaomi (com.miui.powerkeeper HiddenAppsConfigActivity,
+    "Sem restrições"); reservas: lista de otimização do Android → informações
+    do app. A instrução aparece por cima da tela que abriu.
+  - Cartão "Ajustes da Xiaomi" com dois botões (Início automático —
+    com.miui.securitycenter AutoStartManagementActivity — e Economia de
+    bateria) e leitura do "Início automático" (permissão 10008 da Xiaomi).
+  - Avisos somem sozinhos quando resolvidos: a tela reverifica ao voltar das
+    configurações; "VPN sempre ativa" é lida direto do Android
+    (VpnService.isAlwaysOn, funciona com a VPN desligada). O que o Android
+    não deixa conferir ganhou o botão "Já fiz"; itens resolvidos ficam
+    recolhidos em "N itens em ordem", com opção de mostrar de novo.
 - Pendente: versão para notebook/PC (o Orbion de computador) — fica para depois
   do celular, decisão do Evandro em 10/10/2026.
 - Próximos passos possíveis: testar no aparelho; se o Tor ainda cair sozinho

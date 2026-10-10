@@ -150,6 +150,11 @@ class _TelaPainelState extends State<TelaPainel> with SingleTickerProviderStateM
     );
   }
 
+  Future<void> _executar(String acao) async {
+    final msg = await c.acao(acao);
+    if (msg != null && mounted) mostrarAviso(context, msg);
+  }
+
   void _mostrarAvisoDeIdentidade(StatusVpn s) {
     final a = s.avisoDeIdentidade;
     if (a == null || a == _ultimoAvisoIdentidade) return;
@@ -315,12 +320,12 @@ class _TelaPainelState extends State<TelaPainel> with SingleTickerProviderStateM
         texto: 'O seu aparelho está autorizado a encerrar o Orbion para poupar bateria. Quando isso acontece a VPN cai e o celular pode ficar sem internet, mostrando o Wi-Fi com um ponto de exclamação.\n\n'
             'Toque abaixo e escolha "Permitir" para o Orbion continuar funcionando em segundo plano.',
         botao: 'Corrigir agora',
-        aoTocarBotao: () => Motor.executarAcao('ISENTAR_BATERIA'),
+        aoTocarBotao: () => _executar('ISENTAR_BATERIA'),
         botaoSecundario: 'Não avisar',
         aoTocarSecundario: () => c.dispensarAviso('painel:bateria'),
       ));
     }
-    if (s.estado == EstadoVpn.conectado && !s.vpnSempreAtiva && !c.dispensado('painel:sempreativa')) {
+    if (s.estado == EstadoVpn.conectado && c.avisos.sempreAtiva == false && !c.dispensado('painel:sempreativa')) {
       lista.add(CartaoAviso(
         icone: Icons.all_inclusive,
         cor: Cores.ciano,
@@ -328,7 +333,7 @@ class _TelaPainelState extends State<TelaPainel> with SingleTickerProviderStateM
         texto: 'Marque o Orbion como "VPN sempre ativa": se o sistema fechar o app por qualquer motivo, é o próprio Android que liga a VPN de volta.\n\n'
             'Toque abaixo, abra a engrenagem ao lado de Orbion VPN e ligue "VPN sempre ativa".',
         botao: 'Abrir configurações de VPN',
-        aoTocarBotao: () => Motor.executarAcao('ABRIR_VPN'),
+        aoTocarBotao: () => _executar('ABRIR_VPN'),
         botaoSecundario: 'Não avisar',
         aoTocarSecundario: () => c.dispensarAviso('painel:sempreativa'),
       ));
@@ -343,7 +348,7 @@ class _TelaPainelState extends State<TelaPainel> with SingleTickerProviderStateM
             ? 'O DNS Privado está fixo em "${a.dnsPrivado.substring(5)}". Com ele ligado, Instagram, YouTube e outros param de abrir, e o bloqueio de rastreadores deixa de funcionar.\n\nDesligue em Configurações → Rede e Internet → DNS Privado. Com o Orbion conectado você não perde nada: o túnel resolve os nomes por dentro.'
             : 'O DNS Privado está no modo "Automático": a primeira página demora uns 15 segundos a mais para abrir.\n\nPara corrigir: Configurações → Rede e Internet → DNS Privado → "Desativado".',
         botao: 'Corrigir agora',
-        aoTocarBotao: () => Motor.executarAcao('ABRIR_DNS_PRIVADO'),
+        aoTocarBotao: () => _executar('ABRIR_DNS_PRIVADO'),
         botaoSecundario: 'Não avisar',
         aoTocarSecundario: () => c.dispensarAviso('painel:dnsprivado:${a.dnsPrivado}'),
       ));
@@ -355,7 +360,7 @@ class _TelaPainelState extends State<TelaPainel> with SingleTickerProviderStateM
         titulo: 'Notificações bloqueadas',
         texto: 'Sem elas você não vê se a VPN está no ar, nem consegue desligá-la pela barra de notificações.',
         botao: 'Permitir',
-        aoTocarBotao: () => Motor.executarAcao('PEDIR_NOTIFICACAO'),
+        aoTocarBotao: () => _executar('PEDIR_NOTIFICACAO'),
         botaoSecundario: 'Não avisar',
         aoTocarSecundario: () => c.dispensarAviso('painel:notificacao'),
       ));

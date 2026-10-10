@@ -22,6 +22,8 @@ class _TelaConfigState extends State<TelaConfig> {
   final TextEditingController _bridges = TextEditingController();
   bool _bridgesCarregadas = false;
   double? _rotacaoArrastando;
+  int _ultimoRetorno = 0;
+  bool _mostrarEmOrdem = false;
 
   ControladorOrbion get c => widget.c;
 
@@ -65,6 +67,14 @@ class _TelaConfigState extends State<TelaConfig> {
       listenable: c,
       builder: (context, _) {
         final cfg = c.config;
+        // Voltou de uma tela do Android (bateria, VPN, Xiaomi...): confere de
+        // novo, para o que já foi resolvido sumir sozinho.
+        if (c.retornos != _ultimoRetorno) {
+          _ultimoRetorno = c.retornos;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && !_verificando) _verificar();
+          });
+        }
         if (!_bridgesCarregadas && c.carregado) {
           _bridges.text = cfg.bridges;
           _bridgesCarregadas = true;
@@ -91,21 +101,25 @@ class _TelaConfigState extends State<TelaConfig> {
 
   List<Widget> _secaoDiagnostico() {
     final itens = _diagnostico;
-    final pendentes = itens?.where((i) => i.gravidade == Gravidade.grave || i.gravidade == Gravidade.atencao).length ?? 0;
+    final pendentes = itens?.where((i) => i.pendente).toList() ?? const <ItemDiagnostico>[];
+    final emOrdem = itens?.where((i) => !i.pendente).toList() ?? const <ItemDiagnostico>[];
     return [
       const TituloDeSecao('🩺 DIAGNÓSTICO E "MANTER O ORBION VIVO"'),
       if (itens == null)
         const Card(child: Padding(padding: EdgeInsets.all(20), child: Center(child: Text('Verificando...'))))
       else ...[
-        if (pendentes == 0)
-          const LinhaInfo(
-            icone: Icons.check_circle,
-            corDoIcone: Cores.verde,
-            titulo: 'Tudo certo',
-            subtitulo: 'Nenhum ajuste urgente pendente neste aparelho.',
+        if (pendentes.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 10),
+            child: LinhaInfo(
+              icone: Icons.verified,
+              corDoIcone: Cores.verde,
+              titulo: 'Tudo certo',
+              subtitulo: 'Nenhum ajuste pendente neste aparelho.',
+            ),
           ),
-        const SizedBox(height: 8),
-        ...itens.map(_itemDiagnostico),
+        ...pendentes.map(_itemPendente),
+        if (emOrdem.isNotEmpty) _cartaoEmOrdem(emOrdem),
       ],
       Align(
         alignment: Alignment.centerRight,
@@ -118,35 +132,98 @@ class _TelaConfigState extends State<TelaConfig> {
     ];
   }
 
-  Widget _itemDiagnostico(ItemDiagnostico i) {
+  Future<void> _executar(String acao) async {
+    if (acao == 'ABRIR_APPS') {
+      widget.irPara(1);
+      return;
+    }
+    final msg = await c.acao(acao);
+    if (msg != null && mounted) mostrarAviso(context, msg);
+  }
+
+  /// Item ainda pendente: cartão com o(s) botão(ões) que resolvem e, quando o
+  /// app não consegue conferir sozinho, o "Já fiz".
+  Widget _itemPendente(ItemDiagnostico i) {
     final (cor, icone) = switch (i.gravidade) {
       Gravidade.grave => (Cores.vermelho, Icons.error),
       Gravidade.atencao => (Cores.amarelo, Icons.warning_amber),
-      Gravidade.dica => (Cores.ciano, Icons.lightbulb_outline),
-      Gravidade.ok => (Cores.verde, Icons.check_circle_outline),
+      _ => (Cores.ciano, Icons.lightbulb_outline),
     };
-    if (i.gravidade == Gravidade.ok) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: LinhaInfo(icone: icone, corDoIcone: cor, titulo: i.titulo, subtitulo: i.situacao),
-      );
-    }
     final temAcao = i.acao != 'NENHUMA' && i.botao.isNotEmpty;
+    final temAcao2 = i.acao2 != 'NENHUMA' && i.botao2.isNotEmpty;
     return CartaoAviso(
       icone: icone,
       cor: cor,
       titulo: i.titulo,
       texto: i.situacao,
       botao: temAcao ? i.botao : null,
-      aoTocarBotao: temAcao
-          ? () {
-              if (i.acao == 'ABRIR_APPS') {
-                widget.irPara(1);
-              } else {
-                Motor.executarAcao(i.acao);
-              }
-            }
-          : null,
+      aoTocarBotao: temAcao ? () => _executar(i.acao) : null,
+      botaoExtra: temAcao2 ? i.botao2 : null,
+      aoTocarExtra: temAcao2 ? () => _executar(i.acao2) : null,
+      botaoSecundario: i.dispensar.isNotEmpty ? i.dispensar : null,
+      iconeSecundario: Icons.check,
+      aoTocarSecundario: i.dispensar.isEmpty
+          ? null
+          : () async {
+              await c.confirmar(i.id);
+              await _verificar();
+              if (mounted) mostrarAviso(context, 'Pronto. Esse aviso não aparece mais.');
+            },
+    );
+  }
+
+  /// Tudo o que já está resolvido fica recolhido num cartão só.
+  Widget _cartaoEmOrdem(List<ItemDiagnostico> itens) {
+    final algumConfirmado = itens.any((i) => i.confirmadoPelaPessoa);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.check_circle, color: Cores.verde),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '${itens.length} ${itens.length == 1 ? 'item em ordem' : 'itens em ordem'}',
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _mostrarEmOrdem = !_mostrarEmOrdem),
+                  child: Text(_mostrarEmOrdem ? 'Ocultar' : 'Ver'),
+                ),
+              ],
+            ),
+            if (_mostrarEmOrdem) ...[
+              for (final i in itens)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(36, 4, 8, 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(i.titulo, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      Text(i.situacao, style: const TextStyle(color: Cores.textoFraco, fontSize: 12.5, height: 1.3)),
+                    ],
+                  ),
+                ),
+              if (algumConfirmado)
+                Padding(
+                  padding: const EdgeInsets.only(left: 26),
+                  child: TextButton(
+                    onPressed: () async {
+                      await c.desfazerConfirmacoes();
+                      await _verificar();
+                    },
+                    child: const Text('Mostrar de novo os avisos que marquei como feitos'),
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -277,8 +354,8 @@ class _TelaConfigState extends State<TelaConfig> {
         LinhaInfo(
           icone: Icons.all_inclusive,
           titulo: 'VPN sempre ativa',
-          subtitulo: c.status.vpnSempreAtiva ? 'Ligada: o Android religa o Orbion sozinho' : 'Configurada nas opções de VPN do Android',
-          corDoIcone: c.status.vpnSempreAtiva ? Cores.verde : Cores.ciano,
+          subtitulo: c.avisos.sempreAtiva == true ? 'Ligada: o Android religa o Orbion sozinho' : 'Configurada nas opções de VPN do Android',
+          corDoIcone: c.avisos.sempreAtiva == true ? Cores.verde : Cores.ciano,
           fim: TextButton(onPressed: () => Motor.executarAcao('ABRIR_VPN'), child: const Text('Abrir')),
           explicacao: 'Na tela do Android, toque na engrenagem ao lado de Orbion VPN e ligue "VPN sempre ativa". Se quiser que NADA saia sem a VPN, ligue também "Bloquear conexões sem VPN".',
         ),

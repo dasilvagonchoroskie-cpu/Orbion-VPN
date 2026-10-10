@@ -43,3 +43,24 @@ List<String> linhasDeBridge(String texto) => texto
     .map((l) => l.toLowerCase().startsWith('bridge ') ? l.substring(7).trim() : l)
     .where((l) => l.isNotEmpty)
     .toList();
+
+/// O que dizer depois de abrir uma tela do Android (null = nada a dizer).
+String? mensagemDaAcao(String codigo) {
+  switch (codigo) {
+    case 'JA_LIBERADO':
+      return 'O Orbion já está liberado na bateria.';
+    case 'XIAOMI':
+      return 'Na tela da Xiaomi, escolha "Sem restrições" e volte para o Orbion.';
+    case 'LISTA':
+      return 'Mude a lista para "Todos os apps", toque em Orbion VPN e escolha "Não otimizar".';
+    case 'APP_INFO':
+      return 'Nas informações do app, toque em Bateria e escolha "Sem restrições".';
+    case 'AUTOSTART':
+      return 'Ligue o "Início automático" do Orbion VPN e volte para cá.';
+    case 'NADA':
+    case 'FALHOU':
+      return 'Não consegui abrir essa tela neste celular. Faça pelo caminho: Configurações → Apps → Orbion VPN.';
+    default:
+      return null; // OK, PERGUNTA: a própria tela do Android já aparece.
+  }
+}

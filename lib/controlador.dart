@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'motor.dart';
+import 'util.dart';
 
 /// Estado da tela: o que o motor diz agora + as configurações salvas.
 /// As telas escutam este objeto e se redesenham quando ele muda.
@@ -12,6 +13,10 @@ class ControladorOrbion extends ChangeNotifier {
   Config config = const Config();
   AvisosRapidos avisos = const AvisosRapidos();
   bool carregado = false;
+
+  /// Conta as vezes que o app voltou para a frente (ex.: depois de uma tela
+  /// de configuração do Android). As telas usam isso para se reverificar.
+  int retornos = 0;
 
   Timer? _relogio;
   int _voltas = 0;
@@ -56,11 +61,39 @@ class ControladorOrbion extends ChangeNotifier {
   /// Chamado quando o app volta para a frente (ex.: depois de abrir uma
   /// tela de configuração do Android).
   Future<void> voltouParaFrente() async {
+    retornos++;
     try {
       avisos = await Motor.avisosRapidos();
       status = await Motor.status();
-      notifyListeners();
     } catch (_) {}
+    notifyListeners();
+  }
+
+  /// Abre a tela do Android pedida e devolve o que dizer à pessoa (ou null).
+  Future<String?> acao(String acao) async {
+    try {
+      final codigo = await Motor.executarAcao(acao);
+      return mensagemDaAcao(codigo);
+    } on PlatformException catch (e) {
+      return e.message;
+    }
+  }
+
+  /// "Já fiz": a pessoa confirma um ajuste que o app não consegue conferir.
+  Future<void> confirmar(String id) async {
+    config = await Motor.confirmar(id);
+    try {
+      avisos = await Motor.avisosRapidos();
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  Future<void> desfazerConfirmacoes() async {
+    config = await Motor.desfazerConfirmacoes();
+    try {
+      avisos = await Motor.avisosRapidos();
+    } catch (_) {}
+    notifyListeners();
   }
 
   /// Retorna null se deu certo, ou o motivo de não ter ligado.

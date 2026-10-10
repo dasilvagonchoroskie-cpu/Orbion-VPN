@@ -32,6 +32,13 @@ class CartaoAviso extends StatelessWidget {
   final String? botaoSecundario;
   final VoidCallback? aoTocarSecundario;
 
+  /// Segunda ação (contorno), entre o botão principal e o secundário.
+  final String? botaoExtra;
+  final VoidCallback? aoTocarExtra;
+
+  /// Ícone do botão secundário (ex.: ✓ no "Já fiz").
+  final IconData? iconeSecundario;
+
   const CartaoAviso({
     super.key,
     required this.icone,
@@ -42,6 +49,9 @@ class CartaoAviso extends StatelessWidget {
     this.aoTocarBotao,
     this.botaoSecundario,
     this.aoTocarSecundario,
+    this.botaoExtra,
+    this.aoTocarExtra,
+    this.iconeSecundario,
   });
 
   @override
@@ -71,11 +81,12 @@ class CartaoAviso extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(texto, style: const TextStyle(color: Cores.texto, height: 1.4, fontSize: 14)),
-          if (botao != null || botaoSecundario != null) const SizedBox(height: 12),
-          if (botao != null || botaoSecundario != null)
+          if (botao != null || botaoSecundario != null || botaoExtra != null) const SizedBox(height: 12),
+          if (botao != null || botaoSecundario != null || botaoExtra != null)
             Wrap(
               spacing: 10,
               runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 if (botao != null)
                   FilledButton(
@@ -83,11 +94,23 @@ class CartaoAviso extends StatelessWidget {
                     onPressed: aoTocarBotao,
                     child: Text(botao!, style: const TextStyle(fontWeight: FontWeight.w700)),
                   ),
-                if (botaoSecundario != null)
-                  TextButton(
-                    onPressed: aoTocarSecundario,
-                    child: Text(botaoSecundario!, style: const TextStyle(color: Cores.textoFraco)),
+                if (botaoExtra != null)
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(foregroundColor: cor, side: BorderSide(color: cor)),
+                    onPressed: aoTocarExtra,
+                    child: Text(botaoExtra!, style: const TextStyle(fontWeight: FontWeight.w700)),
                   ),
+                if (botaoSecundario != null)
+                  iconeSecundario == null
+                      ? TextButton(
+                          onPressed: aoTocarSecundario,
+                          child: Text(botaoSecundario!, style: const TextStyle(color: Cores.textoFraco)),
+                        )
+                      : TextButton.icon(
+                          onPressed: aoTocarSecundario,
+                          icon: Icon(iconeSecundario, size: 18, color: Cores.verde),
+                          label: Text(botaoSecundario!, style: const TextStyle(color: Cores.verde, fontWeight: FontWeight.w700)),
+                        ),
               ],
             ),
         ],

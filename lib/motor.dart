@@ -95,8 +95,21 @@ class Motor {
     return AvisosRapidos.deMapa(m ?? const {});
   }
 
-  static Future<bool> executarAcao(String acao) async =>
-      (await _chamar<bool>('executarAcao', {'acao': acao})) ?? false;
+  /// Abre a tela do Android pedida. Devolve um código (OK, FALHOU, XIAOMI...).
+  static Future<String> executarAcao(String acao) async =>
+      (await _chamar<String>('executarAcao', {'acao': acao})) ?? 'FALHOU';
+
+  /// A pessoa confirma um ajuste que o app não consegue conferir sozinho.
+  static Future<Config> confirmar(String id) async {
+    final m = await _chamar<Map<dynamic, dynamic>>('confirmar', {'id': id});
+    return Config.deMapa(m ?? const {});
+  }
+
+  /// Volta a mostrar os avisos que a pessoa marcou como feitos.
+  static Future<Config> desfazerConfirmacoes() async {
+    final m = await _chamar<Map<dynamic, dynamic>>('desfazerConfirmacoes');
+    return Config.deMapa(m ?? const {});
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -326,7 +339,24 @@ class ItemDiagnostico {
   final Gravidade gravidade;
   final String acao;
   final String botao;
-  const ItemDiagnostico(this.id, this.titulo, this.situacao, this.gravidade, this.acao, this.botao);
+
+  /// Texto do botão "Já fiz" — vazio quando o app confere sozinho.
+  final String dispensar;
+  final String acao2;
+  final String botao2;
+
+  const ItemDiagnostico(
+    this.id,
+    this.titulo,
+    this.situacao,
+    this.gravidade,
+    this.acao,
+    this.botao, {
+    this.dispensar = '',
+    this.acao2 = 'NENHUMA',
+    this.botao2 = '',
+  });
+
   factory ItemDiagnostico.deMapa(Map<dynamic, dynamic> m) => ItemDiagnostico(
         '${m['id']}',
         '${m['titulo']}',
@@ -339,7 +369,13 @@ class ItemDiagnostico {
         },
         '${m['acao'] ?? 'NENHUMA'}',
         '${m['botao'] ?? ''}',
+        dispensar: '${m['dispensar'] ?? ''}',
+        acao2: '${m['acao2'] ?? 'NENHUMA'}',
+        botao2: '${m['botao2'] ?? ''}',
       );
+
+  bool get pendente => gravidade != Gravidade.ok;
+  bool get confirmadoPelaPessoa => gravidade == Gravidade.ok && situacao.startsWith('Feito — confirmado');
 }
 
 class InfoMotor {
@@ -387,16 +423,21 @@ class AvisosRapidos {
   final String dnsPrivado; // DESLIGADO, AUTOMATICO ou FIXO:servidor
   final bool notificacoes;
   final bool vpnAutorizada;
+
+  /// "VPN sempre ativa": true/false, ou null quando não dá para saber.
+  final bool? sempreAtiva;
   const AvisosRapidos({
     this.bateriaIsenta = true,
     this.dnsPrivado = 'DESLIGADO',
     this.notificacoes = true,
     this.vpnAutorizada = true,
+    this.sempreAtiva,
   });
   factory AvisosRapidos.deMapa(Map<dynamic, dynamic> m) => AvisosRapidos(
         bateriaIsenta: _bool(m['bateriaIsenta'], true),
         dnsPrivado: '${m['dnsPrivado'] ?? 'DESLIGADO'}',
         notificacoes: _bool(m['notificacoes'], true),
         vpnAutorizada: _bool(m['vpnAutorizada'], true),
+        sempreAtiva: m['sempreAtiva'] is bool ? m['sempreAtiva'] as bool : null,
       );
 }
