@@ -47,6 +47,11 @@ jobs:
             echo "SO_ARM64=1" >> "$GITHUB_ENV"
           fi
           echo "Motor montado:"; find android/app/src/main/jniLibs -type f -exec ls -la {} \;
+          for f in $(find android/app/src/main/jniLibs -type f | sort); do
+            echo "::notice title=motor::$(echo "$f" | sed 's#.*/jniLibs/##') — $(file -b "$f" | cut -c1-150)"
+          done
+          [ -f android/app/src/main/assets/bridges_embutidas.json ] && \
+            echo "::notice title=bridges::$(python3 -c "import json;d=json.load(open('android/app/src/main/assets/bridges_embutidas.json'));print(d['origem'],len(d['snowflake']),'snowflake',len(d['obfs4']),'obfs4')")" || true
 
       - name: Preparar Flutter
         uses: subosito/flutter-action@v2
@@ -80,11 +85,17 @@ jobs:
           SENHA: ${{ secrets.ORBION_KEYSTORE_SENHA }}
         run: |
           if [ -z "$CHAVE" ] || [ -z "$SENHA" ]; then
-            echo "::error::Faltam os segredos ORBION_KEYSTORE_BASE64 / ORBION_KEYSTORE_SENHA."; exit 1
+            # Sem os segredos, a esteira gera o APK com chave de depuração e
+            # publica só para uso interno. A assinatura oficial do Orbion é
+            # aplicada depois, fora da esteira, com a chave guardada pelo dono.
+            echo "::notice::Sem chave de produção na esteira: APK sai para assinatura posterior."
+            echo "ASSINATURA=interna" >> "$GITHUB_ENV"
+            exit 0
           fi
           echo "$CHAVE" | base64 -d > "$RUNNER_TEMP/orbion.jks"
           printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
             "$RUNNER_TEMP/orbion.jks" "$SENHA" "orbion" "$SENHA" > android/key.properties
+          echo "ASSINATURA=producao" >> "$GITHUB_ENV"
 
       - name: Compilar APKs (um por tipo de processador)
         run: |
@@ -123,7 +134,8 @@ jobs:
           name: orbion-vpn-apk
           path: saida/
 
-      - name: Publicar como Release
+      - name: Publicar como Release (assinado oficialmente)
+        if: env.ASSINATURA == 'producao'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-mais-recente
@@ -132,6 +144,24 @@ jobs:
             Orbion VPN com interface em Flutter e motor nativo corrigido.
             Tor: pacote oficial do Tor Browser ${{ env.TOR_BROWSER_VERSION }} • túnel: hev-socks5-tunnel ${{ env.HEV_VERSION }}.
             Para a maioria dos celulares, use o arquivo **arm64-v8a**.
+          files: |
+            saida/*.apk
+            saida/SHA256SUMS.txt
+          prerelease: true
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publicar para assinatura (uso interno)
+        if: env.ASSINATURA != 'producao'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: compilacao-interna
+          name: Compilação interna (NÃO instalar — falta a assinatura oficial)
+          body: |
+            Arquivos de trabalho da esteira, ainda com chave de depuração.
+            A versão para instalar fica na release "apk-mais-recente".
+            Tor Browser ${{ env.TOR_BROWSER_VERSION }} • hev-socks5-tunnel ${{ env.HEV_VERSION }} • execução ${{ github.run_number }}.
           files: |
             saida/*.apk
             saida/SHA256SUMS.txt
