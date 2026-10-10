@@ -53,7 +53,7 @@ jobs:
       - name: Preparar Go (para o Snowflake)
         uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version: '1.26.x'
           cache: false
 
       - name: Motor — Snowflake compilado do código-fonte
