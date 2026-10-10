@@ -59,9 +59,13 @@ jobs:
       - name: Motor — Snowflake compilado do código-fonte
         continue-on-error: true
         run: |
-          if ! scripts/compilar-snowflake.sh android/app/src/main/jniLibs; then
+          if ! scripts/compilar-snowflake.sh android/app/src/main/jniLibs > snowflake.log 2>&1; then
+            cat snowflake.log
+            tail -8 snowflake.log | while IFS= read -r l; do echo "::warning title=snowflake::$l"; done
             echo "::warning::Snowflake não compilou; o app sai sem esse degrau do contorno."
             find android/app/src/main/jniLibs -name libsnowflake.so -delete
+          else
+            cat snowflake.log
           fi
 
       - name: Resumo do motor
