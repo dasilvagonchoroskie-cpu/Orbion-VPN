@@ -1,0 +1,21 @@
+name: orbion_vpn
+description: "Orbion VPN — rede Tor com Kill Switch, interface em Flutter."
+publish_to: 'none'
+version: 6.0.0+60
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+# Sem pacotes de terceiros de propósito: a interface só conversa com o motor
+# nativo pelo canal "orbion/motor". Menos dependência, menos coisa para
+# quebrar numa atualização do Flutter.
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

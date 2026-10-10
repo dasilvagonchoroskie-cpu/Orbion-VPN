@@ -1,0 +1,108 @@
+# Lista de domínios de rastreamento e publicidade bloqueados pelo Orbion.
+#
+# COMO FUNCIONA: cada linha é um domínio. O bloqueio pega o domínio e todos os
+# subdomínios dele. Escrever "doubleclick.net" barra também "ad.doubleclick.net".
+#
+# Linhas começadas com # são comentários e são ignoradas.
+#
+# ===========================================================================
+# CRITÉRIO PARA ENTRAR AQUI — leia antes de acrescentar qualquer coisa.
+#
+# Só entram domínios que existem APENAS para rastrear ou anunciar. Se o domínio
+# também serve conteúdo, login ou qualquer função que o usuário queira, ele NÃO
+# entra — bloquear quebraria o aplicativo, e a pessoa culparia o Orbion.
+#
+# Exemplo do cuidado: "graph.facebook.com" rastreia bastante, mas é por onde
+# passa o login do Facebook em dezenas de outros aplicativos. Bloquear ali
+# quebraria todos eles. Por isso não está na lista.
+#
+# Lista curta e certeira vale mais que lista enorme que quebra as coisas.
+# ===========================================================================
+
+# ---- Google: publicidade e medição ----
+doubleclick.net
+googleadservices.com
+googlesyndication.com
+google-analytics.com
+googletagmanager.com
+googletagservices.com
+adservice.google.com
+pagead2.googlesyndication.com
+admob.com
+
+# ---- Meta: pixel e medição ----
+connect.facebook.net
+
+# ---- Amazon publicidade ----
+amazon-adsystem.com
+assoc-amazon.com
+
+# ---- Redes de anúncio ----
+adcolony.com
+applovin.com
+inmobi.com
+mopub.com
+smaato.net
+tapjoy.com
+unityads.unity3d.com
+vungle.com
+chartboost.com
+ironsrc.com
+supersonicads.com
+adjust.com
+appsflyer.com
+kochava.com
+branch.io
+singular.net
+
+# ---- Análise de comportamento ----
+mixpanel.com
+amplitude.com
+segment.com
+segment.io
+heapanalytics.com
+fullstory.com
+hotjar.com
+mouseflow.com
+crazyegg.com
+quantserve.com
+scorecardresearch.com
+comscore.com
+nielsen.com
+chartbeat.com
+newrelic.com
+bugsnag.com
+
+# ---- Rastreadores diversos ----
+criteo.com
+criteo.net
+taboola.com
+outbrain.com
+outbrainimg.com
+revcontent.com
+zemanta.com
+sharethrough.com
+pubmatic.com
+rubiconproject.com
+openx.net
+casalemedia.com
+adnxs.com
+adsrvr.org
+bidswitch.net
+33across.com
+yieldmo.com
+teads.tv
+smartadserver.com
+360yield.com
+sitescout.com
+turn.com
+mathtag.com
+bluekai.com
+demdex.net
+everesttech.net
+omtrdc.net
+2o7.net
+
+# ---- Rastreadores brasileiros ----
+navdmp.com
+mediamath.com

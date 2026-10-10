@@ -1,0 +1,17 @@
+# Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+.idea/
+*.iml
+pubspec.lock
+# Android
+android/.gradle/
+android/local.properties
+android/app/src/main/jniLibs/
+android/app/src/main/assets/bridges_embutidas.json
+# Segredos: NUNCA versionar a chave de assinatura
+android/key.properties
+*.jks
+*.keystore

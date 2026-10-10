@@ -1,0 +1,141 @@
+name: Compilar APK do Orbion VPN
+
+# A cada envio: monta o motor (Tor oficial + túnel compilado do código-fonte),
+# confere o código Flutter, roda os testes e gera os APKs assinados.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+env:
+  FLUTTER_VERSION: '3.47.5'
+  JAVA_VERSION: '17'
+  HEV_VERSION: '2.18.0'
+
+jobs:
+  apk:
+    name: Motor, análise, testes e APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Preparar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Ferramentas de conferência
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq file gnupg binutils >/dev/null
+
+      - name: Motor — túnel (hev-socks5-tunnel) compilado do código-fonte
+        run: scripts/compilar-hev.sh android/app/src/main/jniLibs
+
+      - name: Motor — Tor, obfs4 e Snowflake do pacote oficial do Tor Project
+        run: |
+          if ! scripts/baixar-motor-tor.sh android/app/src/main/jniLibs android/app/src/main/assets; then
+            echo "::warning::Download do pacote oficial falhou. Usando os binários de reserva (arm64, sem Snowflake)."
+            mkdir -p android/app/src/main/jniLibs/arm64-v8a
+            install -m 0755 nativo/reserva/arm64-v8a/libtor.so android/app/src/main/jniLibs/arm64-v8a/
+            install -m 0755 nativo/reserva/arm64-v8a/libobfs4proxy.so android/app/src/main/jniLibs/arm64-v8a/
+            # Sem Tor para as outras arquiteturas, não há como gerar APK delas.
+            rm -rf android/app/src/main/jniLibs/armeabi-v7a android/app/src/main/jniLibs/x86_64
+            echo "SO_ARM64=1" >> "$GITHUB_ENV"
+          fi
+          echo "Motor montado:"; find android/app/src/main/jniLibs -type f -exec ls -la {} \;
+
+      - name: Preparar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Baixar dependências
+        run: flutter pub get
+
+      - name: Análise estática (flutter analyze)
+        run: |
+          set -o pipefail
+          if ! flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analise.log; then
+            grep -E "error -|error •" analise.log | head -40 | while IFS= read -r l; do echo "::error title=flutter analyze::$l"; done
+            exit 1
+          fi
+
+      - name: Testes (flutter test)
+        run: |
+          set -o pipefail
+          if ! flutter test 2>&1 | tee teste.log; then
+            grep -E "FAILED|Expected:|Actual:|Error:|error:" teste.log | head -40 | while IFS= read -r l; do echo "::error title=flutter test::$l"; done
+            exit 1
+          fi
+
+      - name: Chave de assinatura do Orbion
+        env:
+          CHAVE: ${{ secrets.ORBION_KEYSTORE_BASE64 }}
+          SENHA: ${{ secrets.ORBION_KEYSTORE_SENHA }}
+        run: |
+          if [ -z "$CHAVE" ] || [ -z "$SENHA" ]; then
+            echo "::error::Faltam os segredos ORBION_KEYSTORE_BASE64 / ORBION_KEYSTORE_SENHA."; exit 1
+          fi
+          echo "$CHAVE" | base64 -d > "$RUNNER_TEMP/orbion.jks"
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$RUNNER_TEMP/orbion.jks" "$SENHA" "orbion" "$SENHA" > android/key.properties
+
+      - name: Compilar APKs (um por tipo de processador)
+        run: |
+          NUMERO=$((60 + ${{ github.run_number }}))
+          ALVOS="android-arm,android-arm64,android-x64"
+          [ "${SO_ARM64:-0}" = "1" ] && ALVOS="android-arm64"
+          set -o pipefail
+          if ! flutter build apk --release --split-per-abi --target-platform "$ALVOS" --build-number=$NUMERO 2>&1 | tee build.log; then
+            grep -E "^e: |error:|What went wrong|FAILURE|Exception" -A3 build.log | head -60 | while IFS= read -r l; do echo "::error title=flutter build::$l"; done
+            exit 1
+          fi
+          VERSAO="$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f1)"
+          mkdir -p saida
+          for f in build/app/outputs/flutter-apk/app-*-release.apk; do
+            abi="$(basename "$f" | sed -E 's/app-(.*)-release.apk/\1/')"
+            cp "$f" "saida/Orbion-VPN-v${VERSAO}-${abi}.apk"
+          done
+          ls -la saida
+
+      - name: Conferir o conteúdo e a assinatura dos APKs
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          for apk in saida/*.apk; do
+            echo "== $apk"
+            unzip -l "$apk" | grep -E "lib/.*\.so" | awk '{print "   " $4 "  (" $1 " bytes)"}'
+            for obrigatorio in libtor.so libhev-socks5-tunnel.so libflutter.so libapp.so; do
+              unzip -l "$apk" | grep -q "/$obrigatorio" || { echo "::error::$apk sem $obrigatorio"; exit 1; }
+            done
+            "$APKSIGNER" verify --print-certs "$apk" | grep -E "Signer #1 certificate (DN|SHA-256)"
+          done
+          sha256sum saida/*.apk | tee saida/SHA256SUMS.txt
+
+      - name: Publicar os APKs (artefato)
+        uses: actions/upload-artifact@v4
+        with:
+          name: orbion-vpn-apk
+          path: saida/
+
+      - name: Publicar como Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-mais-recente
+          name: Orbion VPN — versão mais recente
+          body: |
+            Orbion VPN com interface em Flutter e motor nativo corrigido.
+            Tor: pacote oficial do Tor Browser ${{ env.TOR_BROWSER_VERSION }} • túnel: hev-socks5-tunnel ${{ env.HEV_VERSION }}.
+            Para a maioria dos celulares, use o arquivo **arm64-v8a**.
+          files: |
+            saida/*.apk
+            saida/SHA256SUMS.txt
+          prerelease: true
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
