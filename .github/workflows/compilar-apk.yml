@@ -47,11 +47,30 @@ jobs:
             echo "SO_ARM64=1" >> "$GITHUB_ENV"
           fi
           echo "Motor montado:"; find android/app/src/main/jniLibs -type f -exec ls -la {} \;
-          for f in $(find android/app/src/main/jniLibs -type f | sort); do
-            echo "::notice title=motor::$(echo "$f" | sed 's#.*/jniLibs/##') — $(file -b "$f" | cut -c1-150)"
-          done
           [ -f android/app/src/main/assets/bridges_embutidas.json ] && \
             echo "::notice title=bridges::$(python3 -c "import json;d=json.load(open('android/app/src/main/assets/bridges_embutidas.json'));print(d['origem'],len(d['snowflake']),'snowflake',len(d['obfs4']),'obfs4')")" || true
+
+      - name: Preparar Go (para o Snowflake)
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: false
+
+      - name: Motor — Snowflake compilado do código-fonte
+        continue-on-error: true
+        run: |
+          if ! scripts/compilar-snowflake.sh android/app/src/main/jniLibs; then
+            echo "::warning::Snowflake não compilou; o app sai sem esse degrau do contorno."
+            find android/app/src/main/jniLibs -name libsnowflake.so -delete
+          fi
+
+      - name: Resumo do motor
+        run: |
+          for d in android/app/src/main/jniLibs/*/; do
+            abi="$(basename "$d")"
+            itens="$(for f in "$d"*.so; do printf '%s(%s) ' "$(basename "$f" .so | sed 's/^lib//')" "$(file -b "$f" | grep -oE 'executable|shared object' | head -1)"; done)"
+            echo "::notice title=motor $abi::$itens"
+          done
 
       - name: Preparar Flutter
         uses: subosito/flutter-action@v2
@@ -119,14 +138,16 @@ jobs:
         run: |
           APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
           for apk in saida/*.apk; do
-            echo "== $apk"
-            unzip -l "$apk" | grep -E "lib/.*\.so" | awk '{print "   " $4 "  (" $1 " bytes)"}'
-            for obrigatorio in libtor.so libhev-socks5-tunnel.so libflutter.so libapp.so; do
-              unzip -l "$apk" | grep -q "/$obrigatorio" || { echo "::error::$apk sem $obrigatorio"; exit 1; }
+            unzip -l "$apk" > lista.txt
+            for obrigatorio in libtor.so libhev-socks5-tunnel.so libobfs4proxy.so libflutter.so libapp.so; do
+              if ! grep -q "/$obrigatorio" lista.txt; then echo "::error::$apk sem $obrigatorio"; exit 1; fi
             done
-            "$APKSIGNER" verify --print-certs "$apk" | grep -E "Signer #1 certificate (DN|SHA-256)"
+            libs="$(grep -oE 'lib/[^/]+/[^ ]+\.so' lista.txt | sed 's#lib/[^/]*/##' | tr '\n' ' ')"
+            echo "::notice title=$(basename "$apk")::$libs"
+            "$APKSIGNER" verify "$apk"
           done
-          sha256sum saida/*.apk | tee saida/SHA256SUMS.txt
+          sha256sum saida/*.apk > saida/SHA256SUMS.txt
+          cat saida/SHA256SUMS.txt
 
       - name: Publicar os APKs (artefato)
         uses: actions/upload-artifact@v4
