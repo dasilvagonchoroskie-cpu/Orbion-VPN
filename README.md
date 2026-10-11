@@ -1,4 +1,4 @@
-# Orbion VPN — v6.1.2 (Flutter)
+# Orbion VPN — v6.2.0 (Flutter)
 
 App Android de privacidade da **Fortaleza Digital Security**: o tráfego do
 celular passa pela rede Tor, com **rota inteligente** (bancos, governo,
@@ -17,6 +17,7 @@ lib/  (Flutter/Dart)                         android/app/src/main/kotlin/com/orb
 ├─ main.dart        (4 abas)                 ├─ OrbionVpnService.kt (VPN, fila de controle, Kill Switch, religamento)
 ├─ controlador.dart (estado; religa ao abrir)├─ Ponte.kt            (ContentProvider: tela ↔ motor, em JSON)
 ├─ motor.dart       (chamadas ao nativo)     ├─ Filas.kt            (nada demora na linha principal)
+├─ legal.dart       (aceite, termos, licenças)├─ Falhas.kt           (erro não derruba a VPN; rastro no relatório)
 └─ telas/                                    ├─ RotaInteligente.kt  (categorias de apps e sites)
    ├─ painel.dart                            ├─ FiltroSocks.kt      (rastreadores / por fora / disjuntor / Tor)
    ├─ apps.dart     (rota de cada app)       ├─ TorManager.kt       (Tor + escada de contorno)
@@ -57,5 +58,12 @@ manifesto e páginas de 16 KB). Com os segredos `ORBION_KEYSTORE_BASE64` e
 `ORBION_KEYSTORE_SENHA` (alias `orbion`), os APKs saem assinados na Release
 `apk-mais-recente`; sem eles, vão para `compilacao-interna` com chave de
 depuração e recebem a assinatura oficial fora da esteira.
+
+## Privacidade, termos e licenças
+
+- `assets/legal/privacidade.md` e `assets/legal/termos.md`: o app mostra estes
+  textos e o site é gerado deles (`python3 scripts/gerar-paginas-legais.py
+  <pasta>` → https://fortalezadigitalsecurity.com.br/orbion/).
+- `assets/licencas/`: preenchida pela esteira com as licenças do motor.
 
 Detalhes, decisões e histórico: `PROJETO-orbion-vpn.md`.

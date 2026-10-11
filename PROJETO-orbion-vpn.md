@@ -41,6 +41,11 @@ e religamento automático se o sistema derrubar a VPN.
 - v6.1.2 (11/10/2026): primeiro relatório enviado pelo botão "Enviar
   relatório" da 6.1.1 (5 min depois de instalar). Tudo saudável; ajustes finos
   na seção 5.4.
+- v6.2.0 (11/10/2026): relatório das 15:12 depois de trocar Wi-Fi → dados
+  móveis (rede de casa fraca): "loop de erros" — crítico (seção 5.5). E o
+  pedido do Evandro: deixar 100% pronto para vender na Play Store, com
+  Política de Privacidade, Termos de Uso e a parte de "não coletamos dados"
+  (seção 8).
 
 ## 3. Decisões travadas
 
@@ -76,6 +81,32 @@ e religamento automático se o sistema derrubar a VPN.
   pessoa nem bridges — só contagens, estado, eventos e registros técnicos.
 - Binários do Tor vêm do pacote oficial do Tor Project (SHA-256 + GPG
   conferidos) — não compilar Tor por conta própria.
+- Privacidade: o Orbion NÃO coleta dados. Sem cadastro, anúncios, rastreadores
+  ou estatísticas; sem servidores próprios no caminho do tráfego; tudo fica no
+  aparelho. Só recebemos o relatório que a pessoa decidir mandar (guardado até
+  90 dias depois do atendimento).
+- Política de Privacidade e Termos de Uso (LGPD, CDC, Marco Civil): fonte
+  única em `assets/legal/privacidade.md` e `termos.md`. O app mostra esses
+  arquivos (sem internet) e o site é gerado deles por
+  `scripts/gerar-paginas-legais.py` → https://fortalezadigitalsecurity.com.br/orbion/
+  (privacidade.html e termos.html, no repositório público
+  `fortaleza-digital-site`, pasta `orbion/`). Mudou o texto? Editar o .md,
+  subir `versaoDosTermos` (lib/util.dart) se a mudança for importante,
+  regerar as páginas e publicar no site. Contato usado nos textos:
+  fortalezadigitalsecurity@gmail.com (o do rodapé do site).
+- Primeiro uso: boas-vindas com aceite dos Termos + Política, e depois o aviso
+  em destaque de uso da VPN (VpnService) com "Concordo" — exigência da Play
+  Store, separado de outros avisos. Instalação nova só liga a VPN depois do
+  aceite (o motor confere `aviso_vpn_aceito`; quem já usava antes continua
+  protegido até abrir o app). Versões: `versaoDosTermos` e `versaoDoAvisoVpn`
+  (Dart) = `Preferencias.VERSAO_AVISO_VPN` (Kotlin).
+- Licenças de código aberto: a esteira copia os textos (Tor, libevent,
+  OpenSSL, zlib, zstd, lyrebird, conjure, hev-socks5-tunnel, hev-task-system,
+  lwIP, libyaml, Snowflake) para `assets/licencas/` e o app mostra em
+  Config → Sobre → Licenças de código aberto (obrigatório por distribuir
+  esses programas). A esteira falha se faltar a do Tor ou a do túnel.
+- Erro não tratado numa linha de fundo do processo da VPN NÃO derruba a VPN
+  (Falhas.kt): o rastro vai para `falhas.log` / relatório e a VPN segue.
 
 ## 4. Arquitetura
 
@@ -108,6 +139,19 @@ disso 1 falha já pausa de novo e a pausa dobra (1, 2, 4, 8 min, máx. 10 min);
 um sucesso zera. Falhas durante queda ou troca de rede (45 s depois de uma
 rede cair/perder internet, 30 s depois de voltar/trocar) NÃO contam.
 
+Saúde da rede Tor (desde a 6.2.0): uma falha só pesa contra o destino (pausa
+e desvio automático) se o Tor funcionou para outro destino há menos de 60 s E
+acertou pelo menos 70% das conexões dos outros nos últimos 2 min. Quando 4+
+destinos falham sem nada funcionar desde que começaram, ou menos de 30% dá
+certo em 2 min, é "rede instável": ninguém é pausado nem desviado e o Painel
+mostra "Conexão instável". A troca de rede limpa as pausas.
+
+Limites (desde a 6.2.0): filtro com no máximo 480 linhas (2 por conexão) e
+96 conexões esperando a resposta do Tor (as demais falham na hora); túnel
+(hev) com no máximo 224 conexões simultâneas (fecha as mais paradas primeiro).
+O DNS do túnel usa uma faixa interna nova a cada início (100.64/12 →
+100.80/12 → 100.96/12 → 100.112/12).
+
 Rede do aparelho (desde a 6.1.1): só redes físicas contam (NOT_VPN). O Tor
 refaz as conexões só se a rede que ELE usava sumiu ou perdeu internet e há
 outra boa (espera 3 s, no máximo 1 vez a cada 30 s). Sem rede nenhuma, o Tor
@@ -127,11 +171,14 @@ Motor (Kotlin, `android/app/src/main/kotlin/com/orbion/vpn/motor/`):
 - `Diagnostico` — bateria, ajustes da marca, quedas da VPN em 7 dias, VPN sempre ativa, processos filhos, notificações, DNS privado, resolução de nomes, resumo da rota inteligente; "Já fiz" com prefixo `diag:`
 - `Eventos` (+ `Inicio`) — diário da VPN (`eventos.log`) e motivo de cada fechamento (ApplicationExitInfo, com rastro da linha principal em travamentos)
 - `Relatorio` — relatório para o suporte (estado, configuração em contagens, diagnóstico, fechamentos, diário, filtro, 300 linhas do Tor, avisos do túnel); `Arquivos` (processo principal) entrega o .txt ao app escolhido no menu Compartilhar, só leitura
-- `Vigia`, `BootReceiver`, `Preferencias` (versão 2 da configuração), `Painel`
+- `Vigia`, `BootReceiver`, `Preferencias` (versão 2 da configuração; aceites `termos_aceitos` e `aviso_vpn_aceito`), `Painel`
+- `Falhas` — guarda o rastro de erros não tratados (`falhas.log`) nos dois processos; no da VPN, erro em linha de fundo é contido
 
-Interface (Flutter, `lib/`): `main.dart` (4 abas: Painel, Apps, Registros,
-Config), `controlador.dart` (religa sozinho ao abrir se o sistema derrubou),
-`motor.dart` (modelos + chamadas), `telas/painel|apps|registros|config.dart`,
+Interface (Flutter, `lib/`): `main.dart` (carregando → boas-vindas/aceite →
+4 abas: Painel, Apps, Registros, Config), `controlador.dart` (religa sozinho
+ao abrir se o sistema derrubou; não liga nada antes do aceite), `motor.dart`
+(modelos + chamadas), `legal.dart` (boas-vindas, aviso da VPN, leitor da
+política e dos termos, licenças), `telas/painel|apps|registros|config.dart`,
 `widgets/comuns.dart`, `tema.dart` (neon escuro), `util.dart` (+ testes).
 - Apps: cada app com a rota (pela rede Tor / por fora e por quê); a chave muda
   na hora com "Desfazer"; "Voltar ao automático" apaga as escolhas manuais.
@@ -140,7 +187,9 @@ Config), `controlador.dart` (religa sozinho ao abrir se o sistema derrubou),
   (copiar = últimas 150 linhas). Só consulta o motor com a aba à vista.
 - Config: diagnóstico, Rota inteligente (categorias, desvio automático,
   desviados na sessão, em pausa, sites por sua conta), criptografia,
-  segurança, automático, rede Tor, DNS, sobre.
+  segurança, automático, rede Tor, DNS, sobre (enviar relatório) e
+  Privacidade e termos (política, termos, como usamos a VPN, licenças,
+  falar com o suporte).
 
 ## 5. O que foi corrigido
 
@@ -243,6 +292,32 @@ memória ("Watermark Pressure", limpeza normal da Xiaomi) e a VPN seguiu.
    a pessoa escolheu.
 6. Texto do evento de VPN desligada pelo Android explica as causas possíveis.
 
+### 5.5 A troca de Wi-Fi para dados móveis (corrigido na 6.2.0)
+
+Relatório de 11/10/2026 15:12 (6.1.2), com dados móveis fracos em casa:
+1. Na 6.1.1 o processo da VPN caiu 2× (05:29 e 05:30, "erro interno") logo
+   depois de trocar de rede e de reconectar: todos os apps reconectavam ao
+   mesmo tempo, cada conexão usa 2 linhas no filtro (teto era 900) e o
+   Android recusava criar mais linhas — o OutOfMemoryError de
+   pthread_create não era capturado e derrubava a VPN, que só voltou quando o
+   Evandro abriu o app. Corrigido: tetos menores (seção 4), nenhuma falha de
+   conexão derruba o processo, erros de linha de fundo contidos e com rastro
+   no relatório.
+2. "Loop de erros" na 6.1.2 com dados móveis: o Tor demorava, cada site que
+   falhava 3× era pausado (238 PAUSADO na sessão) e alguns foram desviados
+   para fora do Tor (4) como se recusassem o Tor — culpa da rede, não dos
+   sites. Corrigido com a saúde da rede Tor (seção 4) e o aviso "Conexão
+   instável" no Painel e em Registros.
+3. 3 destinos continuavam em pausa 4 min depois de voltar ao Wi-Fi: a troca
+   de rede agora limpa as pausas.
+4. Aviso interno do Tor "Bug: Tried to open a socket with DisableNetwork set"
+   na troca de rede (defeito conhecido e inofensivo do Tor): fora do registro,
+   só contado no relatório.
+5. Teste na JVM (`teste-filtro`): 40 conexões com 256 KB voltam inteiras;
+   180 conexões com o Tor mudo usam ~110 linhas (as que passam do limite
+   falham na hora); ninguém é pausado; um site que recusa o Tor enquanto os
+   outros funcionam é pausado depois de 3 falhas.
+
 ## 6. Compilação e entrega
 
 - Esteira: `.github/workflows/compilar-apk.yml` a cada envio para `main`:
@@ -264,9 +339,10 @@ memória ("Watermark Pressure", limpeza normal da Xiaomi) e a VPN seguiu.
   Guardar a chave e a senha: sem elas não dá para atualizar o app por cima.
 - versionCode = 1000 × arquitetura + (60 + número da execução da esteira)
   (arm64-v8a = 2xxx). A 6.1.0 entregue foi 2068 (execução 8); a 6.1.1, 2072
-  (execução 12); a 6.1.2 entregue é 2073 (execução 13).
-- APK para celular: `Orbion-VPN-v6.1.2-arm64-v8a.apk`, SHA-256
-  ad471c647fea86b0c9706baacabe8f4fc1667d4e806999f59f26941565eadb76.
+  (execução 12); a 6.1.2, 2073 (execução 13); a 6.2.0 entregue é 2074
+  (execução 14).
+- APK para celular: `Orbion-VPN-v6.2.0-arm64-v8a.apk`, SHA-256
+  ce66ab36453e448b93434272ea69b4ee56e9ace93611e199e287093672edcb0f.
   Instala por cima da 6.1.x sem desinstalar (mesma chave).
 - A esteira mostra no resumo os avisos do `flutter analyze` e o total de
   testes (a sessão do Claude não consegue baixar os registros completos).
@@ -275,21 +351,23 @@ memória ("Watermark Pressure", limpeza normal da Xiaomi) e a VPN seguiu.
 
 - v6.1.0 testada pelo Evandro no celular (11/10/2026): não travou nem fechou.
 - v6.1.1 instalada pelo Evandro em 11/10/2026 05:26; relatório 1 min depois
-  (seção 5.4).
-- v6.1.2 compilada (esteira execução 13: análise sem avisos, 14
-  testes do Flutter, manifesto e 16 KB ok) e assinada em 11/10/2026. Tor
+  (seção 5.4). v6.1.2 instalada às 05:46; relatório às 15:12 (seção 5.5).
+- v6.2.0 compilada (esteira execução 14: análise sem avisos, 18 testes do
+  Flutter, 13 licenças, manifesto e 16 KB ok) e assinada em 11/10/2026. Tor
   Browser 15.0.24, hev-socks5-tunnel 2.18.0, 7 bridges obfs4 + 2 snowflake
-  embutidas. Conferido localmente: o motor Kotlin compila e 61 testes (rota
-  inteligente, disjuntor e faixas do túnel) passam.
-- O que testar no celular: (1) usar normal por algumas horas e mandar o
-  "Enviar relatório" — o registro do Tor não pode ter a sequência
-  "DisableNetwork is set / Opening Socks listener" repetindo, nem "Skipping
-  obsolete" ou "only an IP address"; no diário, a linha "Tempos: apps ... •
-  Tor ... • resto ..." de cada conexão; (2) trocar Wi-Fi ↔ dados móveis e
-  ficar sem sinal: o Painel mostra "Sem internet no aparelho" e volta
-  sozinho; (3) mexer em vários apps na aba Apps (chave + Desfazer) e abrir
-  sites no navegador logo depois (não pode dar erro de certificado);
-  (4) bancos e gov.br abrindo com a VPN ligada.
+  embutidas. Conferido localmente: o motor Kotlin compila, 79 testes (rota
+  inteligente, disjuntor, faixas do túnel, saúde da rede Tor, arquivo de
+  falhas) e o teste de carga do filtro passam. Ainda não testada no aparelho.
+- Ao abrir a 6.2.0 pela primeira vez aparecem as boas-vindas: aceitar os
+  termos e o aviso de uso da VPN (a VPN do Evandro continua ligada enquanto
+  isso).
+- O que testar no celular: (1) trocar Wi-Fi ↔ dados móveis algumas vezes e
+  usar os apps: a VPN não pode cair; com a rede fraca o Painel mostra
+  "Conexão instável" e Registros não enche de PAUSADO; depois mandar o
+  relatório (seções "ERROS INTERNOS" e "Rede Tor instável"); (2) ficar sem
+  sinal: "Sem internet no aparelho" e volta sozinho; (3) Config → Sobre →
+  Privacidade e termos: abrir política, termos, licenças e "Falar com o
+  suporte"; (4) bancos e gov.br abrindo com a VPN ligada.
 - Recomendado ao Evandro: deixar serviços do Google / Play Store e WhatsApp
   na rota automática (por fora): pelo Tor, notificações atrasam e chamadas
   não completam.
@@ -304,17 +382,75 @@ memória ("Watermark Pressure", limpeza normal da Xiaomi) e a VPN seguiu.
 
 ## 8. Play Store (antes de publicar)
 
-- Formulário de declaração de VpnService (VPN é a função principal; dados
-  cifrados até a saída do túnel; sem coleta de dados; sem anúncios).
-- Declaração do tipo de serviço em primeiro plano `specialUse` (subtipo
-  "vpn": é o reserva quando o Android recusa `systemExempted`).
-- Página da loja dizendo que o app usa VpnService e o que a rota inteligente
-  manda por fora do Tor.
-- Segurança dos dados (Data safety): não coleta nem compartilha dados; o
-  diário e os registros ficam só no aparelho.
-- Política de privacidade publicada (pode ficar no site da Fortaleza).
-- Conta de desenvolvedor, ícones e capturas de tela, Android App Bundle
-  (.aab) assinado pela Play App Signing (a chave do Orbion vira a chave de
-  envio).
+Pesquisado em 11/10/2026 nas páginas de ajuda da Play Console (VpnService,
+requisitos da conta, Segurança dos dados, teste fechado).
+
+### 8.1 Bloqueio: conta de desenvolvedor do tipo Organização
+
+A Google exige que apps aprovados para usar a classe VpnService sejam
+publicados por conta do tipo **Organização** (a conta Pessoal não serve).
+A conta de Organização pede o número **D-U-N-S** (gratuito, da Dun &
+Bradstreet), que é tirado com um **CNPJ** — os dados da conta têm de bater
+com o cadastro D-U-N-S. Sem CNPJ não dá para publicar o Orbion na Play Store.
+(Quando houver CNPJ, colocar o número na seção 1 da Política de Privacidade
+e nos Termos, junto com o nome empresarial.) A exigência de teste fechado com
+12 testadores por 14 dias é das contas pessoais novas.
+
+### 8.2 Já pronto no app e no site
+
+- Política de Privacidade: https://fortalezadigitalsecurity.com.br/orbion/privacidade.html
+  (a Play Console exige o link mesmo para app que não coleta dados; ela
+  também está dentro do app).
+- Termos de Uso: https://fortalezadigitalsecurity.com.br/orbion/termos.html
+- Aviso em destaque de uso da VPN dentro do app, com concordância ("Concordo
+  e continuar"), separado de outros avisos.
+- Licenças de código aberto no app.
+- Manifesto sem QUERY_ALL_PACKAGES; páginas de 16 KB; serviço em primeiro
+  plano `systemExempted|specialUse` (subtipo "vpn").
+
+### 8.3 Respostas para a Play Console
+
+- Declaração de VpnService: VPN é a função principal. Texto: "O Orbion cria
+  um túnel VPN no aparelho e encaminha o tráfego dos aplicativos,
+  criptografado, pela rede Tor (rede pública de retransmissores voluntários),
+  com rota inteligente para os serviços que recusam o Tor. Não usamos
+  servidores próprios e não coletamos dados do tráfego." O formulário pede um
+  vídeo: gravar a tela abrindo o app pela primeira vez (boas-vindas → aviso de
+  uso da VPN → Concordo), tocando em Conectar (janela de permissão do
+  Android) e o Painel conectado.
+- Segurança dos dados (Data safety): recomendado responder que coleta só
+  "Histórico de navegação na Web" — processado de forma efêmera (os nomes dos
+  sites que vão por fora do Tor são consultados no DNS criptografado da
+  Cloudflare/Google, sem guardar nada), não compartilhado, opcional (some ao
+  desligar a rota inteligente), finalidade "Funcionalidade do app"; dados
+  criptografados em trânsito: sim; pedido de exclusão: sim (e-mail). Dado
+  efêmero não aparece no selo público, que fica "Nenhum dado coletado". O
+  relatório de suporte é enviado pela própria pessoa, por outro app, e está
+  descrito na política.
+- Serviço em primeiro plano (Android 14+): tipo specialUse/systemExempted —
+  "Serviço da VPN (VpnService) que mantém o túnel ativo enquanto a pessoa
+  quer a proteção". Também pede vídeo (o mesmo serve).
+- Público-alvo: 18 anos ou mais (fica fora das regras de apps para crianças).
+- Anúncios: não. Acesso ao app: tudo disponível sem login.
+- Classificação de conteúdo: ferramenta/utilitário, sem conteúdo próprio.
+- Ficha da loja — descrição curta (até 80 caracteres): "VPN pela rede Tor
+  com rota inteligente e Kill Switch. Não coletamos seus dados."
+- Ficha da loja — a descrição completa precisa citar o uso do VpnService.
+  Sugestão: "O Orbion VPN usa o recurso de VPN do Android (VpnService) para
+  encaminhar o tráfego dos seus aplicativos pela rede Tor, escondendo o seu
+  endereço de internet (IP) dos sites e serviços. Rota inteligente: bancos,
+  governo, mensageiros e outros serviços que recusam o Tor vão direto, às
+  claras, e você pode mudar o caminho de qualquer app ou site. Kill Switch:
+  se a rede Tor cair, o tráfego que depende dela fica bloqueado em vez de
+  sair sem proteção. Bloqueio de rastreadores e contorno automático de
+  bloqueios (pontes obfs4 e Snowflake). Não coletamos seus dados: sem
+  cadastro, sem anúncios, sem rastreadores e sem servidores próprios — as
+  configurações e os registros ficam só no seu aparelho."
+- Enviar como Android App Bundle (.aab) com a Play App Signing (a chave do
+  Orbion vira a chave de envio). A esteira hoje gera APKs; gerar o .aab
+  (`flutter build appbundle`) quando a conta estiver pronta.
 - Se a revisão recusar REQUEST_IGNORE_BATTERY_OPTIMIZATIONS: apagar a linha do
   manifesto (o app já se adapta).
+- Recomendado: um advogado revisar a Política e os Termos antes de publicar,
+  principalmente depois de ter o CNPJ e o modelo de cobrança (compra única ou
+  assinatura).
