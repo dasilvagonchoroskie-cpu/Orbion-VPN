@@ -339,10 +339,10 @@ Relatório de 11/10/2026 15:12 (6.1.2), com dados móveis fracos em casa:
   Guardar a chave e a senha: sem elas não dá para atualizar o app por cima.
 - versionCode = 1000 × arquitetura + (60 + número da execução da esteira)
   (arm64-v8a = 2xxx). A 6.1.0 entregue foi 2068 (execução 8); a 6.1.1, 2072
-  (execução 12); a 6.1.2, 2073 (execução 13); a 6.2.0 entregue é 2074
-  (execução 14).
+  (execução 12); a 6.1.2, 2073 (execução 13); a 6.2.0 entregue é 2075
+  (execução 15).
 - APK para celular: `Orbion-VPN-v6.2.0-arm64-v8a.apk`, SHA-256
-  ce66ab36453e448b93434272ea69b4ee56e9ace93611e199e287093672edcb0f.
+  23b43b87b19a2bdfb3a06ded73c98079c8a0ee46923b44df3e1787782de74420.
   Instala por cima da 6.1.x sem desinstalar (mesma chave).
 - A esteira mostra no resumo os avisos do `flutter analyze` e o total de
   testes (a sessão do Claude não consegue baixar os registros completos).
@@ -352,7 +352,7 @@ Relatório de 11/10/2026 15:12 (6.1.2), com dados móveis fracos em casa:
 - v6.1.0 testada pelo Evandro no celular (11/10/2026): não travou nem fechou.
 - v6.1.1 instalada pelo Evandro em 11/10/2026 05:26; relatório 1 min depois
   (seção 5.4). v6.1.2 instalada às 05:46; relatório às 15:12 (seção 5.5).
-- v6.2.0 compilada (esteira execução 14: análise sem avisos, 18 testes do
+- v6.2.0 compilada (esteira execução 15: análise sem avisos, 18 testes do
   Flutter, 13 licenças, manifesto e 16 KB ok) e assinada em 11/10/2026. Tor
   Browser 15.0.24, hev-socks5-tunnel 2.18.0, 7 bridges obfs4 + 2 snowflake
   embutidas. Conferido localmente: o motor Kotlin compila, 79 testes (rota
