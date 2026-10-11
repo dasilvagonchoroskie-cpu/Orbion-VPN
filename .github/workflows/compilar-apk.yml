@@ -60,7 +60,7 @@ jobs:
             grep -E "FAILED|Expected:|Actual:|Error:|error:" teste.log | head -40 | while IFS= read -r l; do echo "::error title=flutter test::$l"; done
             exit 1
           fi
-          sed 's/\x1b\[[0-9;]*m//g' teste.log | tr '\r' '\n' | grep -oE "\+[0-9]+[^A-Za-z]*All tests passed!" | tail -1 | while IFS= read -r l; do echo "::notice title=flutter test::$l"; done || true
+          sed 's/\x1b\[[0-9;]*m//g' teste.log | tr '\r' '\n' | grep -oE "[0-9]+ tests? passed|\+[0-9]+[^A-Za-z]*All tests passed!" | tail -1 | while IFS= read -r l; do echo "::notice title=flutter test::$l"; done || true
 
       - name: Motor — túnel (hev-socks5-tunnel) compilado do código-fonte
         run: scripts/compilar-hev.sh android/app/src/main/jniLibs

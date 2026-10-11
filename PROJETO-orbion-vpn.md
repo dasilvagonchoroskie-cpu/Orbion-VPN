@@ -34,6 +34,10 @@ e religamento automático se o sistema derrubar a VPN.
   Aguardar", "tem que servir para todas as marcas (Play Store)" e "a VPN
   inteligente tem que funcionar de verdade, mantendo a segurança". Detalhes
   na seção 5.
+- v6.1.1 (11/10/2026): o Evandro testou a 6.1.0 ("não crashou mais e não
+  fechou") e mandou os registros técnicos pedindo o polimento final para
+  comercializar. Os registros mostraram o Tor sendo reiniciado a cada 2–8 s e
+  um reinício falso do Tor; corrigido e polido (seção 5.3).
 
 ## 3. Decisões travadas
 
@@ -62,6 +66,11 @@ e religamento automático se o sistema derrubar a VPN.
   usa); se a revisão recusar, basta apagar a linha do manifesto — o app
   percebe e passa a abrir as telas de bateria.
 - Sem pacotes Flutter de terceiros (menos coisa para quebrar).
+- Aba Apps: a chave muda na hora, com "Desfazer" no aviso. Só pergunta antes
+  quando quebra algo sem a pessoa perceber: serviços do Google / Play Store
+  (notificações de todos os apps) e mensageiros (chamadas).
+- Relatório para o suporte nunca leva sites visitados, listas de sites da
+  pessoa nem bridges — só contagens, estado, eventos e registros técnicos.
 - Binários do Tor vêm do pacote oficial do Tor Project (SHA-256 + GPG
   conferidos) — não compilar Tor por conta própria.
 
@@ -89,10 +98,17 @@ Decisão do FiltroSocks, nesta ordem: rastreador → recusado; site da lista da
 pessoa / de categoria ligada / desviado sozinho nesta sessão → direto (só
 cifrado); endereço em pausa pelo disjuntor → desvia (site, com desvio
 automático ligado) ou recusa na hora; rede local/endereços internos/reservados
-→ recusa na hora; resto → Tor. Disjuntor: 3 falhas seguidas pelo Tor (Tor
-responde erro, não responde em 25 s, ou o servidor fecha sem mandar nada) →
-pausa de 30 s; depois disso 1 falha já pausa de novo e a pausa dobra (1, 2, 4,
-8 min, máx. 10 min); um sucesso zera.
+→ recusa na hora; sem internet no aparelho → "rede inalcançável" na hora;
+resto → Tor. Disjuntor: 3 falhas seguidas pelo Tor (Tor responde erro, não
+responde em 25 s, ou o servidor fecha sem mandar nada) → pausa de 30 s; depois
+disso 1 falha já pausa de novo e a pausa dobra (1, 2, 4, 8 min, máx. 10 min);
+um sucesso zera. Falhas durante queda ou troca de rede (45 s depois de uma
+rede cair/perder internet, 30 s depois de voltar/trocar) NÃO contam.
+
+Rede do aparelho (desde a 6.1.1): só redes físicas contam (NOT_VPN). O Tor
+refaz as conexões só se a rede que ELE usava sumiu ou perdeu internet e há
+outra boa (espera 3 s, no máximo 1 vez a cada 30 s). Sem rede nenhuma, o Tor
+fica em espera (DisableNetwork=1, poupa bateria) e volta sozinho.
 
 Motor (Kotlin, `android/app/src/main/kotlin/com/orbion/vpn/motor/`):
 - `OrbionVpnService` — ciclo da VPN, fila de controle, Kill Switch, religamento, rotas de apps ao vivo (recria a interface + hev sem mexer no Tor), app novo instalado, notificações
@@ -107,15 +123,18 @@ Motor (Kotlin, `android/app/src/main/kotlin/com/orbion/vpn/motor/`):
 - `Fabricantes` — marca do celular (Xiaomi, Samsung, Motorola, Huawei, Honor, OnePlus, realme, OPPO, vivo, ASUS, Nokia, Sony, Pixel, Tecno/Infinix/itel, LG, outras), passo a passo e telas de bateria/início automático de cada uma
 - `Diagnostico` — bateria, ajustes da marca, quedas da VPN em 7 dias, VPN sempre ativa, processos filhos, notificações, DNS privado, resolução de nomes, resumo da rota inteligente; "Já fiz" com prefixo `diag:`
 - `Eventos` (+ `Inicio`) — diário da VPN (`eventos.log`) e motivo de cada fechamento (ApplicationExitInfo, com rastro da linha principal em travamentos)
+- `Relatorio` — relatório para o suporte (estado, configuração em contagens, diagnóstico, fechamentos, diário, filtro, 300 linhas do Tor, avisos do túnel); `Arquivos` (processo principal) entrega o .txt ao app escolhido no menu Compartilhar, só leitura
 - `Vigia`, `BootReceiver`, `Preferencias` (versão 2 da configuração), `Painel`
 
 Interface (Flutter, `lib/`): `main.dart` (4 abas: Painel, Apps, Registros,
 Config), `controlador.dart` (religa sozinho ao abrir se o sistema derrubou),
 `motor.dart` (modelos + chamadas), `telas/painel|apps|registros|config.dart`,
 `widgets/comuns.dart`, `tema.dart` (neon escuro), `util.dart` (+ testes).
-- Apps: cada app com a rota (pela rede Tor / por fora e por quê); a chave muda.
-- Registros: Decisões (tocar num site → sempre por fora / sempre pelo Tor /
-  automático), Eventos (quedas + diário, botão copiar relatório) e Técnico.
+- Apps: cada app com a rota (pela rede Tor / por fora e por quê); a chave muda
+  na hora com "Desfazer"; "Voltar ao automático" apaga as escolhas manuais.
+- Registros: "Enviar relatório" no topo; Decisões (tocar num site → sempre por
+  fora / sempre pelo Tor / automático), Eventos (quedas + diário) e Técnico
+  (copiar = últimas 150 linhas). Só consulta o motor com a aba à vista.
 - Config: diagnóstico, Rota inteligente (categorias, desvio automático,
   desviados na sessão, em pausa, sites por sua conta), criptografia,
   segurança, automático, rede Tor, DNS, sobre.
@@ -155,6 +174,35 @@ Config), `controlador.dart` (religa sozinho ao abrir se o sistema derrubou),
    sites, desvio automático de quem recusa o Tor, disjuntor por destino e
    listas da pessoa.
 
+### 5.3 O que os registros técnicos da 6.1.0 mostraram (corrigido na 6.1.1)
+
+1. O Tor fechava e reabria tudo a cada 2–8 s ("DisableNetwork is set...
+   Opening Socks listener" em sequência): qualquer troca da rede padrão —
+   inclusive a própria VPN sendo refeita ao mexer nos apps — refazia a rede do
+   Tor e derrubava todas as conexões. Agora só redes físicas contam, com espera
+   e limite (seção 4). O aviso interno do Tor "Bug: Tried to open a socket
+   with DisableNetwork set" vinha dessa enxurrada.
+2. Reinício falso do Tor (00:27:19 no registro): a conferência de saúde de 5 s
+   rodava fora da fila de controle e via o túnel "parado" no meio de uma troca
+   de rotas → Kill Switch → Tor religado. Agora roda na fila de controle.
+3. Quedas de rede contavam como "o site recusou o Tor": sites normais eram
+   pausados e desviados para fora do Tor. Agora não contam (seção 4).
+4. "Your application is giving Tor only an IP address": apps que conectam
+   direto num número IP (WhatsApp na porta 5222, apps com DNS próprio). Não é
+   vazamento de DNS. Aviso desligado (WarnUnsafeSocks 0). A porta de DNS do
+   Tor (não usada) foi removida.
+5. Copiar e colar os registros no chat cortava em 20 mil caracteres → botão
+   "Enviar relatório" (arquivo completo pelo menu Compartilhar).
+6. Bateria: a tela não consulta o motor com o app em segundo plano; Registros
+   só com a aba à vista; o anel do Painel animava sem parar (desfoque 60×/s),
+   agora só conectando/bloqueado e com a aba à vista; a notificação só se
+   atualiza com a tela ligada; log do túnel só com avisos.
+7. Avisos com botão ("Reconectar agora", "Desfazer") ficavam presos na tela
+   (Flutter 3.47 deixa fixo quando há botão) → somem sozinhos.
+8. No teste, o Evandro mandou serviços do Google e WhatsApp pelo Tor: as
+   notificações podem atrasar e chamadas não completam pelo Tor — agora o app
+   avisa antes de mudar esses dois casos.
+
 ## 6. Compilação e entrega
 
 - Esteira: `.github/workflows/compilar-apk.yml` a cada envio para `main`:
@@ -175,28 +223,39 @@ Config), `controlador.dart` (religa sozinho ao abrir se o sistema derrubou),
   B6:40:27:BE:5A:75:5E:1A:30:CC:CF:A8:C2:56:B8:EC:D5:3A:AC:4F:BF:8F:4B:06:7F:B2:EC:5F:BD:B5:2C:3B.
   Guardar a chave e a senha: sem elas não dá para atualizar o app por cima.
 - versionCode = 1000 × arquitetura + (60 + número da execução da esteira)
-  (arm64-v8a = 2xxx). A 6.1.0 entregue é 2068 (execução 8).
-- APK para celular: `Orbion-VPN-v6.1.0-arm64-v8a.apk`, SHA-256
-  af7252312294d82b5390e207ab15055e5977f6c1a00b6e519b3853b5c8df55b2.
-  Instala por cima da 6.0.1 sem desinstalar.
+  (arm64-v8a = 2xxx). A 6.1.0 entregue foi 2068 (execução 8); a 6.1.1
+  entregue é 2072 (execução 12).
+- APK para celular: `Orbion-VPN-v6.1.1-arm64-v8a.apk`, SHA-256
+  880e25769d7e53c6c2ab59bf8b667ced0af0fff8f68ccb2f9420c4a7191f4697.
+  Instala por cima da 6.1.0 sem desinstalar (mesma chave).
+- A esteira mostra no resumo os avisos do `flutter analyze` e o total de
+  testes (a sessão do Claude não consegue baixar os registros completos).
 
 ## 7. Status
 
-- v6.1.0 compilada (esteira execução 8: análise, testes, manifesto e 16 KB ok)
-  e assinada em 11/10/2026. Tor Browser 15.0.24, hev-socks5-tunnel 2.18.0,
-  7 bridges obfs4 + 2 snowflake embutidas. Conferido localmente: o motor
-  Kotlin compila e 56 testes da rota inteligente e do disjuntor passam.
-  Ainda não testada no aparelho.
-- O que testar no celular: (1) ligar, ir para a tela inicial, limpar os
-  recentes e voltar — tem que continuar conectado; (2) usar o app por um tempo
-  sem aparecer "não está respondendo"; (3) app de banco e gov.br abrindo com a
-  VPN ligada; (4) WhatsApp com chamada de voz; (5) Registros → Eventos para
-  ver se o Android derrubou a VPN e por quê (botão copiar relatório).
+- v6.1.0 testada pelo Evandro no celular (11/10/2026): não travou nem fechou.
+- v6.1.1 compilada (esteira execução 12: análise sem avisos, 13
+  testes do Flutter, manifesto e 16 KB ok) e assinada em 11/10/2026. Tor
+  Browser 15.0.24, hev-socks5-tunnel 2.18.0, 7 bridges obfs4 + 2 snowflake
+  embutidas. Conferido localmente: o motor Kotlin compila e 56 testes da rota
+  inteligente e do disjuntor passam.
+- O que testar no celular: (1) usar normal por algumas horas e mandar o
+  "Enviar relatório" — o registro do Tor não pode ter a sequência
+  "DisableNetwork is set / Opening Socks listener" repetindo; (2) trocar
+  Wi-Fi ↔ dados móveis e ficar sem sinal: o Painel mostra "Sem internet no
+  aparelho" e volta sozinho; (3) mexer em vários apps na aba Apps (chave +
+  Desfazer); (4) bancos e gov.br abrindo com a VPN ligada.
+- Recomendado ao Evandro: deixar serviços do Google / Play Store e WhatsApp
+  na rota automática (por fora): pelo Tor, notificações atrasam e chamadas
+  não completam.
 - Pendente: versão para notebook/PC (o Orbion de computador) — fica para depois
   do celular, decisão do Evandro em 10/10/2026.
 - Ideias futuras: mostrar qual app abriu cada conexão (exige modificar o hev
   para passar a porta de origem); tradução para outros idiomas antes de
   publicar fora do Brasil.
+- Endurecimento futuro: senha SOCKS entre o túnel e o filtro e o SOCKS do Tor
+  num soquete Unix (hoje as portas 19055/19050 ficam em 127.0.0.1, que outros
+  apps do aparelho também alcançam; a porta de controle já exige cookie).
 
 ## 8. Play Store (antes de publicar)
 
