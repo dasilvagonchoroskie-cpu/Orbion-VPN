@@ -1,7 +1,7 @@
 name: orbion_vpn
 description: "Orbion VPN — rede Tor com Kill Switch, interface em Flutter."
 publish_to: 'none'
-version: 6.1.1+71
+version: 6.1.2+73
 
 environment:
   sdk: '>=3.5.0 <4.0.0'

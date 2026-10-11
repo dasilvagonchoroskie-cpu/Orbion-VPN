@@ -259,9 +259,12 @@ class OrbionVpnService : VpnService() {
         Log.w(TAG, "Permissão de VPN revogada pelo sistema.")
         // Não chama super.onRevoke(): ele pararia o serviço antes de a fila
         // terminar de desmontar tudo na ordem certa.
+        // Causas possíveis: "Desconectar" na janela de VPN do Android, mudança
+        // nas configurações de VPN do aparelho, outra VPN ligada ou permissão
+        // retirada. Com "VPN sempre ativa", o próprio Android religa em seguida.
         pedirDesligar(
-            "A VPN foi desligada pelo Android: outra VPN foi ligada ou a permissão foi retirada.",
-            erro = "A VPN foi desligada pelo Android: outra VPN foi ligada ou a permissão do Orbion foi retirada.",
+            "A VPN foi desligada pelo próprio Android (Desconectar na janela de VPN, ajuste nas configurações de VPN, outra VPN ligada ou permissão retirada).",
+            erro = "A VPN foi desligada pelo Android: alguém tocou em Desconectar na janela de VPN, outra VPN foi ligada ou a permissão do Orbion foi retirada.",
         )
     }
 
@@ -412,7 +415,9 @@ class OrbionVpnService : VpnService() {
                 pararPecas()
             }
 
+            val antesDosApps = SystemClock.elapsedRealtime()
             val fora = if (soTor) null else RotaInteligente.appsForaDoTor(this, prefs)
+            val msApps = SystemClock.elapsedRealtime() - antesDosApps
             val ipv6 = prefs.capturarIPv6
             if (g != geracao.get()) return
 
@@ -430,7 +435,9 @@ class OrbionVpnService : VpnService() {
                 t.stop()
                 return
             }
+            val antesDoTor = SystemClock.elapsedRealtime()
             val ok = t.startAndAwaitBootstrap(prefs) { pct, msg -> progresso(g, pct, msg) }
+            val msTor = SystemClock.elapsedRealtime() - antesDoTor
             if (g != geracao.get()) {
                 t.stop()
                 return
@@ -469,11 +476,13 @@ class OrbionVpnService : VpnService() {
                     "A VPN tinha sido encerrada pelo sistema e foi religada sozinha (${descreverOrigem(origem)})."
                 }
             }
-            val segundos = (SystemClock.elapsedRealtime() - inicio) / 1000
+            val total = SystemClock.elapsedRealtime() - inicio
             Eventos.anotar(
                 this,
-                "Conectada em ${segundos}s por ${Transportes.nome(t.caminhoEmUso)}" +
-                    (if (fora != null) "; ${fora.size} app(s) por fora do Tor." else "."),
+                "Conectada em ${total / 1000}s por ${Transportes.nome(t.caminhoEmUso)}" +
+                    (if (fora != null) "; ${fora.size} app(s) por fora do Tor." else ".") +
+                    // Para o relatório: onde o tempo foi gasto.
+                    " Tempos: apps ${seg(msApps)} • Tor ${seg(msTor)} • resto ${seg(total - msApps - msTor)}.",
             )
             atualizarInfoSempreAtiva()
             notificar("Conectado pela rede Tor", null)
@@ -518,6 +527,8 @@ class OrbionVpnService : VpnService() {
         }
         return true
     }
+
+    private fun seg(ms: Long): String = String.format(Locale.ROOT, "%.1f", ms.coerceAtLeast(0) / 1000.0).replace('.', ',') + "s"
 
     private fun progresso(g: Int, pct: Int, msg: String) {
         if (g != geracao.get()) return

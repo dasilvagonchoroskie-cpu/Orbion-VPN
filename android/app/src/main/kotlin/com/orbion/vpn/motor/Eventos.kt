@@ -75,6 +75,8 @@ object Eventos {
         val inesperado: Boolean,
         /** Rastro da linha principal, só quando o motivo é travamento. */
         val rastro: String?,
+        /** Aconteceu antes da instalação desta versão do Orbion. */
+        val anterior: Boolean = false,
     ) {
         val daVpn: Boolean get() = processo.endsWith(":vpn")
 
@@ -86,13 +88,22 @@ object Eventos {
             "descricao" to descricao,
             "inesperado" to inesperado,
             "rastro" to rastro,
+            "anterior" to anterior,
         )
+    }
+
+    /** Quando esta versão do Orbion foi instalada (0 = não sabe). */
+    fun instaladaEm(context: Context): Long = try {
+        context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime
+    } catch (_: Exception) {
+        0L
     }
 
     fun fechamentos(context: Context, max: Int = 16, comRastro: Boolean = false): List<Fechamento> {
         if (Build.VERSION.SDK_INT < 30) return emptyList()
         return try {
             val am = context.getSystemService(ActivityManager::class.java) ?: return emptyList()
+            val desde = instaladaEm(context)
             am.getHistoricalProcessExitReasons(context.packageName, 0, max).map { info ->
                 Fechamento(
                     processo = info.processName ?: "",
@@ -103,6 +114,9 @@ object Eventos {
                     importancia = info.importance,
                     inesperado = inesperado(info.reason, info.importance),
                     rastro = if (comRastro && info.reason == ApplicationExitInfo.REASON_ANR) lerRastro(info) else null,
+                    // A própria atualização (motivo 15/16) fecha o app um instante
+                    // ANTES de a versão nova ser gravada: também é "de antes".
+                    anterior = desde > 0 && info.timestamp < desde,
                 )
             }
         } catch (e: Exception) {

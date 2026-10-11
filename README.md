@@ -1,4 +1,4 @@
-# Orbion VPN — v6.1.1 (Flutter)
+# Orbion VPN — v6.1.2 (Flutter)
 
 App Android de privacidade da **Fortaleza Digital Security**: o tráfego do
 celular passa pela rede Tor, com **rota inteligente** (bancos, governo,

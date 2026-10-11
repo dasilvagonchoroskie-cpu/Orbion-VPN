@@ -72,6 +72,7 @@ object Relatorio {
             linha("VPN sempre ativa", Painel.vpnSempreAtiva)
             linha("Bloquear conexões sem VPN", Painel.bloqueioSemVpn)
             linha("Primeiro plano", Painel.tipoPrimeiroPlano)
+            linha("Avisos \"only an IP address\" do Tor (inofensivos, fora do registro)", TorManager.avisosDeIpDireto())
         }
 
         sb.secao("CONFIGURAÇÃO") {
@@ -84,6 +85,10 @@ object Relatorio {
             linha("Desvio automático", prefs.desvioAutomatico)
             linha("Apps por fora (escolha da pessoa)", prefs.appsForaDoTunel.size)
             linha("Apps sempre pelo Tor (escolha da pessoa)", prefs.appsSempreNoTor.size)
+            linha(
+                "Serviços do Google/Play Store pelo Tor (escolha da pessoa)",
+                prefs.appsSempreNoTor.count { it in RotaInteligente.SERVICOS_DO_GOOGLE },
+            )
             linha("Sites sempre por fora", prefs.dominiosDiretos.size)
             linha("Sites sempre pelo Tor", prefs.dominiosSempreTor.size)
             linha("Conectar ao abrir / ao ligar", "${prefs.conectarAoAbrir} / ${prefs.conectarNoBoot}")
@@ -101,11 +106,15 @@ object Relatorio {
         sb.secao("FECHAMENTOS REGISTRADOS PELO ANDROID") {
             val lista = Eventos.fechamentos(context, 16, comRastro = true)
             if (lista.isEmpty()) append("Nenhum (ou Android anterior ao 11).\n")
+            val instalada = Eventos.instaladaEm(context)
+            if (instalada > 0) append("Esta versão foi instalada em ").append(data(instalada)).append(".\n")
             for (f in lista) {
                 append(data(f.quando)).append("  •  ").append(if (f.daVpn) "VPN" else "tela")
                 append("  •  motivo ").append(f.codigo).append(": ").append(f.explicacao)
                 append("  •  importância ").append(f.importancia)
                 if (f.inesperado) append("  •  INESPERADO")
+                else if (!f.daVpn && f.importancia >= 400) append("  •  normal (tela em segundo plano)")
+                if (f.anterior) append("  •  antes desta versão")
                 if (f.descricao.isNotBlank()) append("  •  \"").append(f.descricao).append('"')
                 append('\n')
                 f.rastro?.let { append(it).append('\n') }

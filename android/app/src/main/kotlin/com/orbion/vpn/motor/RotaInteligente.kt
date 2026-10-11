@@ -7,6 +7,8 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
+import java.io.File
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
@@ -35,6 +37,9 @@ import java.util.concurrent.ConcurrentHashMap
  * claras, pelo próprio Android (apps fora do túnel).
  */
 object RotaInteligente {
+
+    /** Serviços do Google que entregam as notificações de todos os apps. */
+    val SERVICOS_DO_GOOGLE = setOf("com.google.android.gms", "com.google.android.gsf", "com.android.vending")
 
     enum class Categoria(val id: String, val titulo: String, val resumo: String, val porque: String) {
         BANCOS(
@@ -364,6 +369,76 @@ object RotaInteligente {
 
     private val memoria = ConcurrentHashMap<String, Lembranca>()
 
+    // ------------------------------------------------------------------
+    // Classificação guardada em disco
+    //
+    // Ler o nome de cada app é caro (o Android abre o APK de cada um). Sem
+    // isso guardado, toda vez que o processo da VPN nascia (atualização,
+    // religamento pelo Android, ligar o celular) a classificação inteira era
+    // refeita ANTES de a interface da VPN subir — segundos com o tráfego
+    // saindo sem proteção e a VPN demorando a conectar. Agora fica num
+    // arquivo pequeno; só app novo ou atualizado é lido de novo. O arquivo
+    // é refeito a cada versão do Orbion (o catálogo pode ter mudado).
+    // ------------------------------------------------------------------
+
+    private const val ARQUIVO_CLASSIFICACAO = "classificacao.cache"
+    @Volatile private var discoLido = false
+    private val travaDoDisco = Any()
+
+    private fun cabecalho(context: Context): String {
+        val v = try {
+            val pi = context.packageManager.getPackageInfo(context.packageName, 0)
+            if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else @Suppress("DEPRECATION") pi.versionCode.toLong()
+        } catch (_: Exception) {
+            0L
+        }
+        return "orbion-classificacao 1 $v"
+    }
+
+    private fun lerDoDisco(context: Context) {
+        if (discoLido) return
+        synchronized(travaDoDisco) {
+            if (discoLido) return
+            discoLido = true
+            try {
+                val f = File(context.filesDir, ARQUIVO_CLASSIFICACAO)
+                if (!f.exists()) return
+                val linhas = f.readLines()
+                if (linhas.firstOrNull() != cabecalho(context)) return
+                val porId = Categoria.values().associateBy { it.id }
+                for (l in linhas.drop(1)) {
+                    val p = l.split('\t')
+                    if (p.size < 3) continue
+                    val versao = p[1].toLongOrNull() ?: continue
+                    memoria.putIfAbsent(p[0], Lembranca(versao, null, porId[p[2]], comNome = false))
+                }
+            } catch (e: Exception) {
+                Log.w("OrbionRota", "Classificação guardada ilegível: ${e.message}")
+            }
+        }
+    }
+
+    private fun gravarNoDisco(context: Context, instalados: Set<String>?) {
+        synchronized(travaDoDisco) {
+            try {
+                if (instalados != null) memoria.keys.retainAll(instalados)
+                val sb = StringBuilder(memoria.size * 48).append(cabecalho(context)).append('\n')
+                for ((pacote, l) in memoria) {
+                    sb.append(pacote).append('\t').append(l.versao).append('\t').append(l.categoria?.id ?: "-").append('\n')
+                }
+                val f = File(context.filesDir, ARQUIVO_CLASSIFICACAO)
+                val tmp = File(context.filesDir, "$ARQUIVO_CLASSIFICACAO.tmp")
+                tmp.writeText(sb.toString())
+                if (!tmp.renameTo(f)) {
+                    f.writeText(sb.toString())
+                    tmp.delete()
+                }
+            } catch (e: Exception) {
+                Log.w("OrbionRota", "Não foi possível guardar a classificação: ${e.message}")
+            }
+        }
+    }
+
     private fun pacotesInstalados(pm: PackageManager, flags: Int): List<PackageInfo> =
         if (Build.VERSION.SDK_INT >= 33) {
             pm.getInstalledPackages(PackageManager.PackageInfoFlags.of(flags.toLong()))
@@ -382,9 +457,11 @@ object RotaInteligente {
      * e o app não é do sistema. Tudo fica guardado até o app ser atualizado.
      */
     fun classificados(context: Context, comNomes: Boolean, pacotes: List<PackageInfo>? = null): List<AppClassificado> {
+        lerDoDisco(context)
         val pm = context.packageManager
         val lista = pacotes ?: pacotesInstalados(pm, 0)
         val saida = ArrayList<AppClassificado>(lista.size)
+        var novos = 0
         for (pi in lista) {
             val pacote = pi.packageName ?: continue
             if (pacote == context.packageName) continue
@@ -408,9 +485,14 @@ object RotaInteligente {
                 null
             }
             if (categoria == null && !sistema && nome != null) categoria = categoriaDoApp(pacote, nome)
+            if (lembrado == null || lembrado.versao != versao || lembrado.categoria != categoria) novos++
             memoria[pacote] = Lembranca(versao, nome, categoria, precisaNome)
             saida += AppClassificado(pacote, nome, sistema, categoria)
         }
+        // Com a lista completa, também tira do arquivo os apps desinstalados.
+        val instalados = if (pacotes == null) lista.mapNotNullTo(HashSet()) { it.packageName } else null
+        val desinstalados = instalados != null && memoria.keys.any { it !in instalados }
+        if (novos > 0 || desinstalados) gravarNoDisco(context, instalados)
         return saida
     }
 

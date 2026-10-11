@@ -443,13 +443,17 @@ class Fechamento {
   final String explicacao;
   final String descricao;
   final String? rastro;
-  const Fechamento(this.processo, this.quando, this.explicacao, this.descricao, this.rastro);
+
+  /// Aconteceu antes da instalação desta versão do Orbion.
+  final bool anterior;
+  const Fechamento(this.processo, this.quando, this.explicacao, this.descricao, this.rastro, {this.anterior = false});
   factory Fechamento.deMapa(Map<dynamic, dynamic> m) => Fechamento(
         '${m['processo']}',
         _int(m['quando']),
         '${m['explicacao'] ?? ''}',
         '${m['descricao'] ?? ''}',
         _str(m['rastro']),
+        anterior: _bool(m['anterior']),
       );
   bool get daVpn => processo == 'vpn';
 }

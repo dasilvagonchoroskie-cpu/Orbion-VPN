@@ -41,6 +41,17 @@ class TorManager(private val context: Context) {
         private const val MAX_LINHAS_LOG = 500
         private val logDoTor = ArrayDeque<String>()
 
+        /**
+         * "Your application is giving Tor only an IP address": app que conecta
+         * direto num número (WhatsApp, apps com endereço fixo ou DNS próprio).
+         * Não é vazamento — nenhuma consulta de DNS sai do túnel —, mas o Tor
+         * repete o aviso a cada poucos segundos e ele empurrava o que importa
+         * para fora do registro. Só é contado (aparece no relatório).
+         */
+        private val avisosDeIpDireto = java.util.concurrent.atomic.AtomicLong(0)
+
+        fun avisosDeIpDireto(): Long = avisosDeIpDireto.get()
+
         @Synchronized
         fun registrarLog(linha: String) {
             logDoTor.addLast(linha)
@@ -272,6 +283,10 @@ class TorManager(private val context: Context) {
             BufferedReader(InputStreamReader(p.inputStream)).use { r ->
                 while (true) {
                     val linha = r.readLine() ?: break
+                    if (linha.contains("is giving Tor only an IP address")) {
+                        avisosDeIpDireto.incrementAndGet()
+                        continue
+                    }
                     registrarLog(linha)
                     analisarLinha(linha, onProgress)
                 }
@@ -303,15 +318,13 @@ class TorManager(private val context: Context) {
         // Sem DNSPort: os nomes chegam ao Tor dentro do pedido SOCKS (o túnel
         // nunca resolve nada sozinho), então uma porta de DNS seria só mais
         // uma porta aberta no aparelho.
-        // WarnUnsafeSocks 0: quando um app conecta direto num número (WhatsApp,
-        // apps com endereço fixo, DNS próprio do app), o Tor avisava "pode
-        // vazar DNS". Aqui não vaza — a consulta de DNS de dentro do túnel não
-        // tem como sair por fora — e o aviso só enchia o registro técnico.
+        // (WarnUnsafeSocks saiu: o Tor 0.4.9 não tem mais essa opção e
+        // reclamava dela a cada início. O aviso "only an IP address" agora é
+        // filtrado na leitura do registro — ver lerSaida.)
         return """
             SocksPort 127.0.0.1:$SOCKS_PORT
             ControlPort 127.0.0.1:$CONTROL_PORT
             CookieAuthentication 1
-            WarnUnsafeSocks 0
             DataDirectory $dados
             PidFile ${pidFile.absolutePath}
             RunAsDaemon 0

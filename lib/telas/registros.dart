@@ -319,19 +319,31 @@ class _TelaRegistrosState extends State<TelaRegistros> {
   // ------------------------------------------------------------------
 
   Widget _vistaEventos() {
+    // O que aconteceu antes da atualização era de outra versão: não assusta
+    // quem acabou de atualizar, mas continua no relatório para o suporte.
+    final atuais = _fechamentos.where((f) => !f.anterior).toList();
+    final antigos = _fechamentos.length - atuais.length;
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
       children: [
         const TituloDeSecao('QUANDO O ANDROID FECHOU O ORBION'),
-        if (_fechamentos.isEmpty)
+        if (atuais.isEmpty)
           const LinhaInfo(
             icone: Icons.verified,
             corDoIcone: Cores.verde,
             titulo: 'Nenhum fechamento inesperado',
-            subtitulo: 'O Android não derrubou o Orbion recentemente.',
+            subtitulo: 'Desde que esta versão foi instalada, o Android não derrubou o Orbion.',
           )
         else
-          for (final f in _fechamentos) _cartaoFechamento(f),
+          for (final f in atuais) _cartaoFechamento(f),
+        if (antigos > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              '$antigos fechamento(s) de antes da atualização (versão anterior do Orbion) não aparecem aqui. Eles continuam no relatório para o suporte.',
+              style: const TextStyle(color: Cores.textoFraco, fontSize: 12),
+            ),
+          ),
         const TituloDeSecao('DIÁRIO DA VPN'),
         if (_eventos.isEmpty)
           const Text('Nada registrado ainda.', style: TextStyle(color: Cores.textoFraco))

@@ -72,6 +72,7 @@ object Diagnostico {
             dnsPrivado(context),
             resolucaoDeNomes(),
             rotaInteligente(context, prefs),
+            googlePeloTor(prefs),
         )
         // O que a pessoa já confirmou vira "em ordem" e sai da lista de pendências.
         return itens.map { i ->
@@ -193,7 +194,11 @@ object Diagnostico {
     private fun fechamentos(context: Context): Item? {
         if (Build.VERSION.SDK_INT < 30) return null
         val semana = System.currentTimeMillis() - 7 * 24 * 3600_000L
-        val recentes = Eventos.fechamentos(context, 20).filter { it.daVpn && it.inesperado && it.quando > semana }
+        // Travamentos de uma versão anterior do Orbion não contam: eram defeito
+        // daquela versão, não do aparelho.
+        val recentes = Eventos.fechamentos(context, 20).filter {
+            it.daVpn && it.inesperado && it.quando > semana && !(it.anterior && it.codigo in setOf(4, 5, 6))
+        }
         if (recentes.isEmpty()) {
             return Item("fechamentos", "Quedas da VPN", "O Android não derrubou a VPN nos últimos 7 dias.", Gravidade.OK)
         }
@@ -385,8 +390,29 @@ object Diagnostico {
             .joinToString(", ") { "${it.key} (${it.value})" }
         return Item(
             "rotainteligente", "Rota inteligente",
-            "Ligada. ${fora.size} app(s) vão por fora do Tor automaticamente: $porMotivo. O resto passa pela rede Tor.",
+            "Ligada. ${fora.size} app(s) vão por fora do Tor: $porMotivo. O resto passa pela rede Tor." +
+                if (prefs.appsSempreNoTor.isNotEmpty()) " Você mandou ${prefs.appsSempreNoTor.size} app(s) que iriam por fora para dentro do Tor." else "",
             Gravidade.OK,
+        )
+    }
+
+    /**
+     * Serviços do Google mandados para dentro do Tor pela pessoa. São eles que
+     * entregam as notificações de quase todos os apps; pelo Tor elas atrasam
+     * ou não chegam. Não muda nada sozinho: só explica e leva à aba Apps.
+     */
+    private fun googlePeloTor(prefs: Preferencias): Item? {
+        if (!prefs.rotaInteligente) return null
+        val noTor = prefs.appsSempreNoTor.count { it in RotaInteligente.SERVICOS_DO_GOOGLE }
+        if (noTor == 0) return null
+        return Item(
+            "googlepelotor", "Notificações podem atrasar",
+            "Você mandou os serviços do Google pela rede Tor. São eles que entregam as notificações de quase todos os apps " +
+                "(WhatsApp, banco, e-mail...): pelo Tor elas podem atrasar ou não chegar, e a Play Store pode falhar ao baixar apps.\n\n" +
+                "Para voltar ao normal, na aba Apps desligue a chave de \"Google Play Services\", \"Estrutura dos Serviços do Google\" " +
+                "e \"Google Play Store\" (ou toque em \"Voltar ao automático\").",
+            Gravidade.DICA, Acao.ABRIR_APPS, "Ver apps",
+            dispensar = "Quero assim",
         )
     }
 }

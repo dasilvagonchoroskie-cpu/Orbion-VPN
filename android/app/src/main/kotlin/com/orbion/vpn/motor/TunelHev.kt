@@ -24,6 +24,20 @@ object TunelHev {
     /** O log é cortado quando passa disso, para nunca encher a memória. */
     private const val LIMITE_LOG_BYTES = 1_500_000L
 
+    /**
+     * Faixas dos endereços internos que o DNS do túnel entrega (todas dentro
+     * de 100.64.0.0/10). Cada início do túnel usa a PRÓXIMA faixa.
+     *
+     * Motivo: o túnel numera os nomes a partir do zero toda vez que sobe
+     * (troca de rotas, religamento). Um app que guardou o endereço interno de
+     * "banco.com" de antes podia, depois do reinício, cair no MESMO número que
+     * agora é de outro site — e o navegador mostrava erro de certificado.
+     * Com a faixa trocada, o endereço velho é recusado na hora e o app
+     * simplesmente pergunta o nome de novo.
+     */
+    private val FAIXAS = listOf("100.64.0.0", "100.80.0.0", "100.96.0.0", "100.112.0.0")
+    private const val MASCARA_DA_FAIXA = "255.240.0.0"
+
     @Volatile private var carregada = false
     @Volatile private var erroDeCarga: String? = null
 
@@ -109,7 +123,20 @@ object TunelHev {
         }
     }
 
+    /** A faixa seguinte à usada no último início (lida da configuração anterior). */
+    private fun proximaFaixa(anterior: File): String {
+        val usada = try {
+            if (anterior.exists()) Regex("network:\\s*([0-9.]+)").find(anterior.readText())?.groupValues?.get(1) else null
+        } catch (_: Exception) {
+            null
+        }
+        val i = FAIXAS.indexOf(usada)
+        return FAIXAS[(i + 1) % FAIXAS.size]
+    }
+
     private fun escreverConfig(context: Context, socksPort: Int, mtu: Int): File {
+        val f = File(context.filesDir, "hev-socks5.yaml")
+        val faixa = proximaFaixa(f)
         // Mesmo ajuste comprovado da versão anterior:
         //   task-stack-size = 20480 + tcp-buffer-size  (regra do próprio hev)
         // Mexer em um sem o outro fazia envio de arquivo grande morrer no fim.
@@ -128,8 +155,8 @@ object TunelHev {
             mapdns:
               address: $DNS_MAPEADO
               port: 53
-              network: 100.64.0.0
-              netmask: 255.192.0.0
+              network: $faixa
+              netmask: $MASCARA_DA_FAIXA
               cache-size: 10000
 
             misc:
@@ -146,7 +173,6 @@ object TunelHev {
               # memória, na aba Registros.)
               log-level: warn
         """.trimIndent()
-        val f = File(context.filesDir, "hev-socks5.yaml")
         f.writeText(yaml + "\n")
         return f
     }

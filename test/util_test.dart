@@ -93,6 +93,14 @@ void main() {
     expect(a.manual, isFalse);
   });
 
+  test('Fechamento sabe se é de antes da atualização', () {
+    final velho = Fechamento.deMapa({'processo': 'tela', 'quando': 1, 'explicacao': 'x', 'anterior': true});
+    final novo = Fechamento.deMapa({'processo': 'vpn', 'quando': 2, 'explicacao': 'y'});
+    expect(velho.anterior, isTrue);
+    expect(novo.anterior, isFalse);
+    expect(novo.daVpn, isTrue);
+  });
+
   test('StatusVpn lê "sem internet"', () {
     expect(StatusVpn.deMapa({'estado': 'CONECTADO', 'semInternet': true}).semInternet, isTrue);
     expect(StatusVpn.deMapa(const {}).semInternet, isFalse);

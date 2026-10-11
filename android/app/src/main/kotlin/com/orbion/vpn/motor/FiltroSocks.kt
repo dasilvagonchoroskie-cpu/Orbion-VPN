@@ -61,6 +61,10 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
         private val pausados = AtomicLong(0)
         private val ipv6Recusados = AtomicLong(0)
         private val reservadosRecusados = AtomicLong(0)
+        /** Parte dos reservados: endereço interno de um início anterior do túnel. */
+        private val enderecosAntigosDoTunel = AtomicLong(0)
+        /** Parte dos reservados: rede local (roteador, impressora, TV...). */
+        private val redeLocalRecusada = AtomicLong(0)
         private val semCriptografiaBarrados = AtomicLong(0)
         private val recusadosPorLotacao = AtomicLong(0)
         private val ultimos = ArrayDeque<Registro>()
@@ -115,6 +119,7 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
         fun zerar() {
             bloqueados.set(0); pelaRedeTor.set(0); diretos.set(0); pausados.set(0)
             ipv6Recusados.set(0); reservadosRecusados.set(0); semCriptografiaBarrados.set(0)
+            enderecosAntigosDoTunel.set(0); redeLocalRecusada.set(0)
             recusadosPorLotacao.set(0)
             ultimos.clear()
             desviadosAuto.clear()
@@ -130,6 +135,8 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
             "pausados" to pausados.get(),
             "ipv6Recusados" to ipv6Recusados.get(),
             "reservadosRecusados" to reservadosRecusados.get(),
+            "reservadosAntigosDoTunel" to enderecosAntigosDoTunel.get(),
+            "reservadosRedeLocal" to redeLocalRecusada.get(),
             "semCriptografiaBarrados" to semCriptografiaBarrados.get(),
             "recusadosPorLotacao" to recusadosPorLotacao.get(),
         )
@@ -296,6 +303,13 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
             // nunca alcançaria. Recusar na hora evita esperas de 10–15 s.
             if (tipo == 1 && reservado(enderecoBruto)) {
                 reservadosRecusados.incrementAndGet()
+                val a = enderecoBruto[0].toInt() and 0xFF
+                val b = enderecoBruto[1].toInt() and 0xFF
+                when {
+                    a == 100 && b in 64..127 -> enderecosAntigosDoTunel.incrementAndGet()
+                    a == 10 || (a == 172 && b in 16..31) || (a == 192 && b == 168) || (a == 169 && b == 254) ->
+                        redeLocalRecusada.incrementAndGet()
+                }
                 responder(saida, 5)
                 return
             }
