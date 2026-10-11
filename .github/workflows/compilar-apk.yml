@@ -188,7 +188,8 @@ jobs:
           problemas=""
           for apk in saida/*.apk; do
             d=$(mktemp -d); unzip -q -o "$apk" 'lib/*' -d "$d" || true
-            for so in "$d"/lib/*/*.so; do
+            # A exigência vale para os processadores de 64 bits (arm64 e x86_64).
+            for so in "$d"/lib/arm64-v8a/*.so "$d"/lib/x86_64/*.so; do
               [ -f "$so" ] || continue
               for alinhamento in $(readelf -lW "$so" 2>/dev/null | awk '/LOAD/ {print $NF}'); do
                 if [ $((alinhamento)) -lt 16384 ]; then

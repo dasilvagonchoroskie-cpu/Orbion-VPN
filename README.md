@@ -1,29 +1,38 @@
-# Orbion VPN — v6 (Flutter)
+# Orbion VPN — v6.1 (Flutter)
 
-App Android de privacidade da **Fortaleza Digital Security**: todo o tráfego do
-celular passa pela rede Tor, com Kill Switch, bloqueio de rastreadores, DNS
-pelo Tor, escolha de apps fora do túnel e contorno automático de bloqueio.
+App Android de privacidade da **Fortaleza Digital Security**: o tráfego do
+celular passa pela rede Tor, com **rota inteligente** (bancos, governo,
+mensageiros, redes sociais, Google, streaming, compras e IA vão por fora do
+Tor, às claras e com a criptografia deles), Kill Switch, bloqueio de
+rastreadores, DNS pelo Tor, contorno automático de bloqueio e religamento
+automático se o sistema derrubar a VPN.
 
 ## Como está montado
 
+Dois processos Android:
+
 ```
-Interface (Flutter/Dart)  ──canal "orbion/motor"──▶  Motor nativo (Kotlin)
-   lib/                                               android/app/src/main/kotlin/com/orbion/vpn/
-   ├─ main.dart        (4 abas)                       ├─ MainActivity.kt   (ponte com o Flutter)
-   ├─ controlador.dart (estado da tela)               └─ motor/
-   ├─ motor.dart       (chamadas ao nativo)              ├─ OrbionVpnService.kt  (VPN, Kill Switch, vigilância)
-   └─ telas/                                             ├─ TorManager.kt        (Tor + escada de contorno)
-      ├─ painel.dart                                     ├─ Transportes.kt       (direto → Snowflake → obfs4)
-      ├─ apps.dart                                       ├─ FiltroSocks.kt       (rastreadores / desvio / Tor)
-      ├─ registros.dart                                  ├─ TunelHev.kt          (pacotes → SOCKS)
-      └─ config.dart                                     ├─ ResolvedorDoH.kt     (DNS criptografado do desvio)
-                                                         ├─ Diagnostico.kt       (o que pode derrubar o app)
-                                                         ├─ AppsProblematicos.kt (catálogo + detector)
-                                                         ├─ Preferencias.kt / Painel.kt / BootReceiver.kt
+Processo principal (tela)                    Processo ":vpn" (motor)
+lib/  (Flutter/Dart)                         android/app/src/main/kotlin/com/orbion/vpn/motor/
+├─ main.dart        (4 abas)                 ├─ OrbionVpnService.kt (VPN, fila de controle, Kill Switch, religamento)
+├─ controlador.dart (estado; religa ao abrir)├─ Ponte.kt            (ContentProvider: tela ↔ motor, em JSON)
+├─ motor.dart       (chamadas ao nativo)     ├─ Filas.kt            (nada demora na linha principal)
+└─ telas/                                    ├─ RotaInteligente.kt  (categorias de apps e sites)
+   ├─ painel.dart                            ├─ FiltroSocks.kt      (rastreadores / por fora / disjuntor / Tor)
+   ├─ apps.dart     (rota de cada app)       ├─ TorManager.kt       (Tor + escada de contorno)
+   ├─ registros.dart (decisões, eventos)     ├─ Transportes.kt      (direto → Snowflake → obfs4)
+   └─ config.dart                            ├─ TunelHev.kt         (pacotes → SOCKS)
+android/.../MainActivity.kt                  ├─ ResolvedorDoH.kt    (DNS criptografado do que vai por fora)
+  (canal "orbion/motor" → PonteCliente.kt)   ├─ Fabricantes.kt      (ajustes de bateria de cada marca)
+                                             ├─ Diagnostico.kt      (o que pode derrubar o app)
+                                             ├─ Eventos.kt          (diário + por que o Android fechou o app)
+                                             ├─ Vigia.kt            (religa a cada 15 min se precisar)
+                                             └─ Preferencias.kt / Painel.kt / BootReceiver.kt / Json.kt
 ```
 
 Caminho de um pacote: app → interface da VPN → **hev-socks5-tunnel** →
 **FiltroSocks** (127.0.0.1:19055) → **Tor** (127.0.0.1:19050) → internet.
+Apps que vão por fora do Tor (rota inteligente) nem entram no túnel.
 
 ## Binários do motor (montados pela esteira, não ficam no repositório)
 
@@ -41,8 +50,11 @@ Se o download do Tor Project falhar, entram os binários de reserva de
 ## Compilação
 
 Tudo pela esteira do GitHub (`.github/workflows/compilar-apk.yml`), a cada envio
-para `main`. Saem três APKs (arm64-v8a, armeabi-v7a, x86_64) na Release
-`apk-mais-recente` quando os segredos `ORBION_KEYSTORE_BASE64` e
-`ORBION_KEYSTORE_SENHA` (alias `orbion`) existem. Sem eles, os APKs vão para
-`compilacao-interna` com chave de depuração e recebem a assinatura oficial
-fora da esteira.
+para `main`: análise e testes do Flutter primeiro, depois o motor, os APKs
+(arm64-v8a, armeabi-v7a, x86_64) e as conferências (conteúdo, assinatura,
+manifesto e páginas de 16 KB). Com os segredos `ORBION_KEYSTORE_BASE64` e
+`ORBION_KEYSTORE_SENHA` (alias `orbion`), os APKs saem assinados na Release
+`apk-mais-recente`; sem eles, vão para `compilacao-interna` com chave de
+depuração e recebem a assinatura oficial fora da esteira.
+
+Detalhes, decisões e histórico: `PROJETO-orbion-vpn.md`.

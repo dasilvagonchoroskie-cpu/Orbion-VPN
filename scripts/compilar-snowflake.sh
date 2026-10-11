@@ -6,6 +6,9 @@
 # -checklinkname=0: exigido pela biblioteca wlynxg/anet (usada pelo WebRTC)
 # no Android, como orienta o próprio projeto Snowflake.
 #
+# max-page-size=16384: páginas de 16 KB, exigência da Play Store para os
+# celulares novos.
+#
 # CGO ligado e NDK do Android: assim o programa usa o resolvedor de nomes do
 # próprio Android (sem isso, programa em Go no Android não acha DNS).
 #
@@ -37,7 +40,7 @@ for abi in arm64-v8a armeabi-v7a x86_64; do
   extra=""
   [ "$abi" = "armeabi-v7a" ] && extra="GOARM=7"
   env GOOS=android GOARCH="${GOARCH[$abi]}" $extra CGO_ENABLED=1 CC="$TC/${CLANG[$abi]}" \
-    go build -trimpath -buildvcs=false -ldflags="-s -w -checklinkname=0" -o "$DESTINO/$abi/libsnowflake.so" .
+    go build -trimpath -buildvcs=false -ldflags="-s -w -checklinkname=0 -extldflags=-Wl,-z,max-page-size=16384" -o "$DESTINO/$abi/libsnowflake.so" .
   chmod 0755 "$DESTINO/$abi/libsnowflake.so"
   echo "snowflake $TAG ok: $abi — $(file -b "$DESTINO/$abi/libsnowflake.so" | cut -c1-90)"
 done
