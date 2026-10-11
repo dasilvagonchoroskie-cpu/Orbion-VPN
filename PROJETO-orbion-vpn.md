@@ -38,6 +38,9 @@ e religamento automático se o sistema derrubar a VPN.
   fechou") e mandou os registros técnicos pedindo o polimento final para
   comercializar. Os registros mostraram o Tor sendo reiniciado a cada 2–8 s e
   um reinício falso do Tor; corrigido e polido (seção 5.3).
+- v6.1.2 (11/10/2026): primeiro relatório enviado pelo botão "Enviar
+  relatório" da 6.1.1 (5 min depois de instalar). Tudo saudável; ajustes finos
+  na seção 5.4.
 
 ## 3. Decisões travadas
 
@@ -182,9 +185,12 @@ Config), `controlador.dart` (religa sozinho ao abrir se o sistema derrubou),
    Tor e derrubava todas as conexões. Agora só redes físicas contam, com espera
    e limite (seção 4). O aviso interno do Tor "Bug: Tried to open a socket
    with DisableNetwork set" vinha dessa enxurrada.
-2. Reinício falso do Tor (00:27:19 no registro): a conferência de saúde de 5 s
-   rodava fora da fila de controle e via o túnel "parado" no meio de uma troca
-   de rotas → Kill Switch → Tor religado. Agora roda na fila de controle.
+2. Reinício do Tor às 00:27:19: na 6.1.1 foi atribuído a uma corrida da
+   conferência de saúde, mas o diário do relatório da 6.1.1 mostrou que foi o
+   PRÓPRIO Android (onRevoke: "Desconectar" na janela de VPN, ajuste nas
+   configurações de VPN, outra VPN ou permissão retirada) e a "VPN sempre
+   ativa" religando 1 s depois — não é defeito. A conferência de saúde foi
+   mesmo assim movida para a fila de controle (prevenção da corrida).
 3. Quedas de rede contavam como "o site recusou o Tor": sites normais eram
    pausados e desviados para fora do Tor. Agora não contam (seção 4).
 4. "Your application is giving Tor only an IP address": apps que conectam
@@ -202,6 +208,40 @@ Config), `controlador.dart` (religa sozinho ao abrir se o sistema derrubou),
 8. No teste, o Evandro mandou serviços do Google e WhatsApp pelo Tor: as
    notificações podem atrasar e chamadas não completam pelo Tor — agora o app
    avisa antes de mudar esses dois casos.
+
+### 5.4 O que o primeiro relatório da 6.1.1 mostrou (corrigido na 6.1.2)
+
+Relatório de 11/10/2026 05:27 (Xiaomi 25028PC03G, Android 15): conectada,
+0 quedas do Tor, 0 destinos em pausa, 0 sites desviados à toa; o Android não
+derrubou a VPN; desde a 6.1.0 nenhum travamento (os "erro interno" listados
+eram da 6.0.x, de 10/10). A tela foi encerrada 4× em segundo plano por
+memória ("Watermark Pressure", limpeza normal da Xiaomi) e a VPN seguiu.
+1. `WarnUnsafeSocks` não existe mais no Tor 0.4.9 ("Skipping obsolete
+   configuration option" a cada início) e o aviso "only an IP address"
+   continuava. Opção removida; o aviso agora é filtrado na leitura do
+   registro e só contado (aparece no relatório).
+2. Endereços internos do túnel: o hev numera os nomes do zero a cada início
+   (troca de rotas, religamento). Um app com o endereço antigo guardado podia
+   cair no mesmo número, agora de OUTRO site (erro de certificado no
+   navegador). Agora cada início usa a faixa seguinte (100.64/12 → 100.80/12
+   → 100.96/12 → 100.112/12): o endereço velho é recusado na hora e o app
+   pergunta o nome de novo. O relatório separa "endereço antigo do túnel" e
+   "rede local" dentro dos reservados recusados (eram 5 na primeira sessão).
+3. Conexão em 15 s depois da atualização, ~9 s antes de o Tor começar: a
+   classificação dos apps (ler o nome de cada um) era refeita a cada
+   nascimento do processo, antes de a interface da VPN subir. Agora fica
+   guardada em `classificacao.cache` (refeita só para app novo/atualizado e
+   a cada versão do Orbion). O diário passou a mostrar os tempos de cada
+   conexão (apps • Tor • resto) para o próximo relatório.
+4. Registros → Eventos mostrava os travamentos da versão antiga como se
+   fossem da atual. Agora só mostra os desta versão (os antigos ficam no
+   relatório, marcados "antes desta versão"; a tela em segundo plano aparece
+   como "normal").
+5. Diagnóstico: dica "Notificações podem atrasar" quando a pessoa manda os
+   serviços do Google pelo Tor (botão para a aba Apps, "Quero assim" para
+   manter); o texto da rota inteligente não chama mais de "automático" o que
+   a pessoa escolheu.
+6. Texto do evento de VPN desligada pelo Android explica as causas possíveis.
 
 ## 6. Compilação e entrega
 
@@ -223,28 +263,33 @@ Config), `controlador.dart` (religa sozinho ao abrir se o sistema derrubou),
   B6:40:27:BE:5A:75:5E:1A:30:CC:CF:A8:C2:56:B8:EC:D5:3A:AC:4F:BF:8F:4B:06:7F:B2:EC:5F:BD:B5:2C:3B.
   Guardar a chave e a senha: sem elas não dá para atualizar o app por cima.
 - versionCode = 1000 × arquitetura + (60 + número da execução da esteira)
-  (arm64-v8a = 2xxx). A 6.1.0 entregue foi 2068 (execução 8); a 6.1.1
-  entregue é 2072 (execução 12).
-- APK para celular: `Orbion-VPN-v6.1.1-arm64-v8a.apk`, SHA-256
-  880e25769d7e53c6c2ab59bf8b667ced0af0fff8f68ccb2f9420c4a7191f4697.
-  Instala por cima da 6.1.0 sem desinstalar (mesma chave).
+  (arm64-v8a = 2xxx). A 6.1.0 entregue foi 2068 (execução 8); a 6.1.1, 2072
+  (execução 12); a 6.1.2 entregue é 2073 (execução 13).
+- APK para celular: `Orbion-VPN-v6.1.2-arm64-v8a.apk`, SHA-256
+  ad471c647fea86b0c9706baacabe8f4fc1667d4e806999f59f26941565eadb76.
+  Instala por cima da 6.1.x sem desinstalar (mesma chave).
 - A esteira mostra no resumo os avisos do `flutter analyze` e o total de
   testes (a sessão do Claude não consegue baixar os registros completos).
 
 ## 7. Status
 
 - v6.1.0 testada pelo Evandro no celular (11/10/2026): não travou nem fechou.
-- v6.1.1 compilada (esteira execução 12: análise sem avisos, 13
+- v6.1.1 instalada pelo Evandro em 11/10/2026 05:26; relatório 1 min depois
+  (seção 5.4).
+- v6.1.2 compilada (esteira execução 13: análise sem avisos, 14
   testes do Flutter, manifesto e 16 KB ok) e assinada em 11/10/2026. Tor
   Browser 15.0.24, hev-socks5-tunnel 2.18.0, 7 bridges obfs4 + 2 snowflake
-  embutidas. Conferido localmente: o motor Kotlin compila e 56 testes da rota
-  inteligente e do disjuntor passam.
+  embutidas. Conferido localmente: o motor Kotlin compila e 61 testes (rota
+  inteligente, disjuntor e faixas do túnel) passam.
 - O que testar no celular: (1) usar normal por algumas horas e mandar o
   "Enviar relatório" — o registro do Tor não pode ter a sequência
-  "DisableNetwork is set / Opening Socks listener" repetindo; (2) trocar
-  Wi-Fi ↔ dados móveis e ficar sem sinal: o Painel mostra "Sem internet no
-  aparelho" e volta sozinho; (3) mexer em vários apps na aba Apps (chave +
-  Desfazer); (4) bancos e gov.br abrindo com a VPN ligada.
+  "DisableNetwork is set / Opening Socks listener" repetindo, nem "Skipping
+  obsolete" ou "only an IP address"; no diário, a linha "Tempos: apps ... •
+  Tor ... • resto ..." de cada conexão; (2) trocar Wi-Fi ↔ dados móveis e
+  ficar sem sinal: o Painel mostra "Sem internet no aparelho" e volta
+  sozinho; (3) mexer em vários apps na aba Apps (chave + Desfazer) e abrir
+  sites no navegador logo depois (não pode dar erro de certificado);
+  (4) bancos e gov.br abrindo com a VPN ligada.
 - Recomendado ao Evandro: deixar serviços do Google / Play Store e WhatsApp
   na rota automática (por fora): pelo Tor, notificações atrasam e chamadas
   não completam.
