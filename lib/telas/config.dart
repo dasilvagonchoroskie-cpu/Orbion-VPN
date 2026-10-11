@@ -740,7 +740,7 @@ class _TelaConfigState extends State<TelaConfig> {
                     FilledButton(
                       onPressed: () async {
                         await _salvar({'bridges': _bridges.text});
-                        if (context.mounted && !c.status.ligada) mostrarAviso(context, 'Bridges salvas.');
+                        if (mounted && !c.status.ligada) mostrarAviso(context, 'Bridges salvas.');
                       },
                       child: const Text('Salvar bridges'),
                     ),

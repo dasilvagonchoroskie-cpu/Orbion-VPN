@@ -195,14 +195,14 @@ class _TelaPainelState extends State<TelaPainel> with SingleTickerProviderStateM
     });
   }
 
-  Widget _cabecalho() => Row(
+  Widget _cabecalho() => const Row(
         children: [
-          const Icon(Icons.shield, color: Cores.ciano, size: 26),
-          const SizedBox(width: 10),
-          const Text('ORBION', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4)),
-          const SizedBox(width: 6),
-          const Text('VPN', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w300, color: Cores.ciano, letterSpacing: 4)),
-          const Spacer(),
+          Icon(Icons.shield, color: Cores.ciano, size: 26),
+          SizedBox(width: 10),
+          Text('ORBION', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4)),
+          SizedBox(width: 6),
+          Text('VPN', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w300, color: Cores.ciano, letterSpacing: 4)),
+          Spacer(),
           Selo('TOR', Cores.roxo),
         ],
       );
