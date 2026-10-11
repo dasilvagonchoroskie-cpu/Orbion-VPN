@@ -375,6 +375,16 @@ class OrbionVpnService : VpnService() {
             return
         }
         val prefs = Preferencias(this)
+        // Instalação nova: a VPN só liga depois de a pessoa aceitar, no app, o
+        // aviso de como o Orbion usa a VPN (exigência da Play Store). Quem já
+        // usava o Orbion antes deste aviso existir continua protegido até
+        // abrir o app, onde o aviso aparece.
+        if (prefs.avisoVpnAceito < Preferencias.VERSAO_AVISO_VPN && !prefs.estavaLigada) {
+            Eventos.anotar(this, "A VPN não ligou: falta aceitar no app o aviso de uso da VPN.")
+            Painel.falhou("Abra o Orbion e aceite o aviso de uso da VPN para ligar a proteção.")
+            pararServicoSeOcioso()
+            return
+        }
         prefs.estavaLigada = true
         usuarioPediuParar = false
         Vigia.agendar(this)
@@ -962,29 +972,44 @@ class OrbionVpnService : VpnService() {
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
+        // Estes avisos chegam numa linha do próprio Android (ConnectivityThread):
+        // um erro aqui pararia os avisos de rede do processo inteiro, então
+        // nada pode escapar.
         val vigia = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                redesVivas.add(network)
-                agendarAvaliacaoDeRede()
+                try {
+                    redesVivas.add(network)
+                    agendarAvaliacaoDeRede()
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Aviso de rede nova: ${e.message}")
+                }
             }
 
             override fun onLost(network: Network) {
-                redesVivas.remove(network)
-                redesSemInternet.remove(network)
-                // As conexões que estavam nessa rede vão falhar: não é culpa
-                // dos sites, então não pausam nem desviam ninguém.
-                FiltroSocks.perdoarFalhas(45_000)
-                agendarAvaliacaoDeRede()
+                try {
+                    redesVivas.remove(network)
+                    redesSemInternet.remove(network)
+                    // As conexões que estavam nessa rede vão falhar: não é culpa
+                    // dos sites, então não pausam nem desviam ninguém.
+                    FiltroSocks.perdoarFalhas(45_000)
+                    agendarAvaliacaoDeRede()
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Aviso de rede perdida: ${e.message}")
+                }
             }
 
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                // Só interessa quando a rede ganha ou perde internet de verdade
-                // (o sinal do celular muda o tempo todo e não conta).
-                val semInternet = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                val mudou = if (semInternet) redesSemInternet.add(network) else redesSemInternet.remove(network)
-                if (mudou) {
-                    FiltroSocks.perdoarFalhas(45_000)
-                    agendarAvaliacaoDeRede()
+                try {
+                    // Só interessa quando a rede ganha ou perde internet de verdade
+                    // (o sinal do celular muda o tempo todo e não conta).
+                    val semInternet = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    val mudou = if (semInternet) redesSemInternet.add(network) else redesSemInternet.remove(network)
+                    if (mudou) {
+                        FiltroSocks.perdoarFalhas(45_000)
+                        agendarAvaliacaoDeRede()
+                    }
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Aviso de mudança na rede: ${e.message}")
                 }
             }
         }
@@ -1049,6 +1074,7 @@ class OrbionVpnService : VpnService() {
             FiltroSocks.redeEmEspera = false
             // O que falhou sem internet ganha outra chance.
             FiltroSocks.disjuntor.limpar()
+            FiltroSocks.recomecarSaude()
             t.retomarRede()
             redeDoTor = padrao
             ultimoRecomecoDeRede = System.currentTimeMillis()
@@ -1068,6 +1094,10 @@ class OrbionVpnService : VpnService() {
         ultimoRecomecoDeRede = System.currentTimeMillis()
         redeDoTor = padrao
         FiltroSocks.perdoarFalhas(30_000)
+        // Rede nova, chances novas: o que foi pausado na rede anterior (fraca)
+        // volta a ser tentado, e a saúde do Tor é medida de novo.
+        FiltroSocks.disjuntor.limpar()
+        FiltroSocks.recomecarSaude()
         val r = t.redeMudou()
         ResolvedorDoH.limparCache()
         Eventos.anotar(this, "Rede trocada para ${descreverRede(padrao)}: conexões da rede Tor refeitas" + (if (r != null) " ($r)." else "."))

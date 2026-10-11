@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:orbion_vpn/motor.dart';
 import 'package:orbion_vpn/util.dart';
@@ -91,6 +93,49 @@ void main() {
     expect(a.categoriaId, 'mensageiros');
     expect(a.rota, RotaApp.foraAutomatico);
     expect(a.manual, isFalse);
+  });
+
+  test('lerDocumento entende títulos, seções, itens e parágrafos', () {
+    final b = lerDocumento('# Política\n\nVersão 1.\n\n## 1. Quem somos\n\nLinha um\ncontinua aqui.\n\n- item A\n- item B\n\n### Sub\nFim.\n');
+    expect(b.map((x) => x.tipo).toList(), [
+      TipoDeBloco.titulo,
+      TipoDeBloco.paragrafo,
+      TipoDeBloco.secao,
+      TipoDeBloco.paragrafo,
+      TipoDeBloco.item,
+      TipoDeBloco.item,
+      TipoDeBloco.subsecao,
+      TipoDeBloco.paragrafo,
+    ]);
+    expect(b[3].texto, 'Linha um continua aqui.');
+    expect(b[5].texto, 'item B');
+    expect(nomeDoComponente('assets/licencas/tor.txt'), 'Tor');
+    expect(nomeDoComponente('assets/licencas/outro.txt'), 'outro');
+  });
+
+  test('Política e Termos estão completos e com contato', () {
+    for (final caminho in ['assets/legal/privacidade.md', 'assets/legal/termos.md']) {
+      final texto = File(caminho).readAsStringSync();
+      final blocos = lerDocumento(texto);
+      expect(blocos.first.tipo, TipoDeBloco.titulo, reason: caminho);
+      expect(blocos.where((x) => x.tipo == TipoDeBloco.secao).length, greaterThanOrEqualTo(10), reason: caminho);
+      expect(texto, contains('fortalezadigitalsecurity@gmail.com'), reason: caminho);
+      expect(texto, contains('Versão $versaoDosTermos'), reason: caminho);
+    }
+    expect(File('assets/legal/privacidade.md').readAsStringSync(), contains('Não coletamos seus dados'));
+  });
+
+  test('Config lê os aceites (termos e aviso da VPN)', () {
+    final nova = Config.deMapa(const {});
+    expect(nova.termosAceitos, 0);
+    expect(nova.avisoVpnAceito, 0);
+    final aceita = Config.deMapa({'termosAceitos': versaoDosTermos, 'avisoVpnAceito': versaoDoAvisoVpn});
+    expect(aceita.termosAceitos >= versaoDosTermos && aceita.avisoVpnAceito >= versaoDoAvisoVpn, isTrue);
+  });
+
+  test('StatusVpn lê "rede Tor instável"', () {
+    expect(StatusVpn.deMapa({'torInstavel': true}).torInstavel, isTrue);
+    expect(StatusVpn.deMapa(const {}).torInstavel, isFalse);
   });
 
   test('Fechamento sabe se é de antes da atualização', () {

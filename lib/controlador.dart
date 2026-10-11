@@ -31,22 +31,36 @@ class ControladorOrbion extends ChangeNotifier {
   DateTime _ultimoReligamento = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _ultimoDesligarPorVoce = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// A pessoa já aceitou os termos e o aviso de uso da VPN desta versão.
+  bool get consentimentoCompleto =>
+      config.termosAceitos >= versaoDosTermos && config.avisoVpnAceito >= versaoDoAvisoVpn;
+
   Future<void> iniciar() async {
+    // A configuração vem primeiro: é ela que diz se mostra as boas-vindas.
     try {
-      config = await Motor.lerConfig();
+      config = await Motor.lerConfig().timeout(const Duration(seconds: 8));
+    } catch (e) {
+      debugPrint('Falha ao ler a configuração: $e');
+    }
+    carregado = true;
+    notifyListeners();
+    try {
       status = await Motor.status();
       avisos = await Motor.avisosRapidos();
     } catch (e) {
       debugPrint('Falha ao ler o motor: $e');
     }
-    carregado = true;
     notifyListeners();
 
     // Android 13+: pede a permissão de notificação na primeira abertura.
     if (!avisos.notificacoes) {
       unawaited(Motor.executarAcao('PEDIR_NOTIFICACAO_INICIO'));
     }
-    if (!await _talvezReligar() && config.conectarAoAbrir && status.estado == EstadoVpn.desconectado) {
+    // Ligar sozinho ao abrir só depois do aceite (aviso de uso da VPN).
+    if (consentimentoCompleto &&
+        !await _talvezReligar() &&
+        config.conectarAoAbrir &&
+        status.estado == EstadoVpn.desconectado) {
       unawaited(conectar());
     }
     if (emPrimeiroPlano) _iniciarRelogio();

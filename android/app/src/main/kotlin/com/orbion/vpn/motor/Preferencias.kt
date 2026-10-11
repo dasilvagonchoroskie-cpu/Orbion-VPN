@@ -165,6 +165,20 @@ class Preferencias(context: Context) {
         get() = sp.getLong(ULTIMO_FECHAMENTO, 0L)
         set(v) = gravar(ULTIMO_FECHAMENTO, v)
 
+    /** Versão dos Termos de Uso + Política de Privacidade que a pessoa aceitou (0 = nenhuma). */
+    var termosAceitos: Int
+        get() = sp.getInt(TERMOS_ACEITOS, 0)
+        set(v) = gravar(TERMOS_ACEITOS, v)
+
+    /**
+     * Versão do aviso "como o Orbion usa a VPN do Android" que a pessoa aceitou
+     * (exigência da Play Store: aviso em destaque + concordância antes de a
+     * VPN ler o tráfego). 0 = nunca aceitou.
+     */
+    var avisoVpnAceito: Int
+        get() = sp.getInt(AVISO_VPN_ACEITO, 0)
+        set(v) = gravar(AVISO_VPN_ACEITO, v)
+
     fun comoMapa(): Map<String, Any> = mapOf(
         "killSwitch" to killSwitch,
         "bloquearRastreadores" to bloquearRastreadores,
@@ -183,6 +197,8 @@ class Preferencias(context: Context) {
         "bridges" to bridges,
         "contornoAutomatico" to contornoAutomatico,
         "avisosDispensados" to avisosDispensados.toList(),
+        "termosAceitos" to termosAceitos,
+        "avisoVpnAceito" to avisoVpnAceito,
     )
 
     private fun textos(valor: Any?): Set<String>? = (valor as? List<*>)?.filterIsInstance<String>()?.toSet()
@@ -212,6 +228,8 @@ class Preferencias(context: Context) {
                 "bridges" -> (valor as? String)?.let { bridges = it }
                 "contornoAutomatico" -> (valor as? Boolean)?.let { contornoAutomatico = it }
                 "avisosDispensados" -> textos(valor)?.let { avisosDispensados = it }
+                "termosAceitos" -> (valor as? Number)?.let { termosAceitos = it.toInt() }
+                "avisoVpnAceito" -> (valor as? Number)?.let { avisoVpnAceito = it.toInt() }
             }
         }
         val depois = comoMapa()
@@ -302,5 +320,10 @@ class Preferencias(context: Context) {
         private const val ESTAVA_LIGADA = "estava_ligada"
         private const val SEMPRE_ATIVA_CONHECIDA = "sempre_ativa_conhecida"
         private const val ULTIMO_FECHAMENTO = "ultimo_fechamento_visto"
+        private const val TERMOS_ACEITOS = "termos_aceitos"
+        private const val AVISO_VPN_ACEITO = "aviso_vpn_aceito"
+
+        /** Versão atual do aviso de uso da VPN (a tela usa o mesmo número). */
+        const val VERSAO_AVISO_VPN = 1
     }
 }

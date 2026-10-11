@@ -162,7 +162,11 @@ object TunelHev {
             misc:
               tcp-buffer-size: 65536
               task-stack-size: 86016
-              max-session-count: 512
+              # 224 conexões ao mesmo tempo (as mais paradas são fechadas
+              # primeiro quando passa disso). Com 512, na troca de rede todos
+              # os apps reconectavam juntos e o filtro precisava de mais
+              # linhas do que o Android deixa criar — a VPN caía.
+              max-session-count: 224
               connect-timeout: 20000
               tcp-read-write-timeout: 300000
               udp-read-write-timeout: 60000

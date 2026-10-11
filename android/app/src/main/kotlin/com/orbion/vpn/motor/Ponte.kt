@@ -32,23 +32,32 @@ class Ponte : ContentProvider() {
     }
 
     override fun onCreate(): Boolean {
-        // O processo da VPN acabou de nascer: descobre se o anterior foi
-        // derrubado pelo Android (em segundo plano, sem atrasar a abertura).
+        // O processo da VPN acabou de nascer. Antes de tudo: erro não tratado
+        // numa linha de fundo não derruba mais a VPN, e o rastro é guardado.
         val ctx = context?.applicationContext ?: return true
+        Falhas.instalar(ctx, "vpn", conterNoFundo = true)
+        // Descobre se o processo anterior foi derrubado pelo Android (em
+        // segundo plano, sem atrasar a abertura).
         Filas.avulso { Inicio.processoIniciado(ctx) }
         return true
     }
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
         if (Binder.getCallingUid() != Process.myUid()) throw SecurityException("Somente o próprio Orbion.")
-        val ctx = context ?: throw IllegalStateException("Motor sem contexto")
-        val args = (Json.ler(arg) as? Map<*, *>) ?: emptyMap<String, Any?>()
-        val resposta: Any? = try {
-            Atendente.atender(ctx, method, args)
-        } catch (e: Exception) {
-            mapOf(ERRO to (e.message ?: e.javaClass.simpleName))
+        // Nada pode escapar daqui: uma exceção que o Android não sabe
+        // devolver à tela derrubaria o processo da VPN.
+        val json = try {
+            val ctx = context ?: throw IllegalStateException("Motor sem contexto")
+            val args = (Json.ler(arg) as? Map<*, *>) ?: emptyMap<String, Any?>()
+            Json.escrever(Atendente.atender(ctx, method, args))
+        } catch (e: Throwable) {
+            try {
+                Json.escrever(mapOf(ERRO to (e.message ?: e.javaClass.simpleName)))
+            } catch (_: Throwable) {
+                null
+            }
         }
-        return Bundle().apply { putString(CHAVE, Json.escrever(resposta)) }
+        return Bundle().apply { putString(CHAVE, json) }
     }
 
     override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor? = null
@@ -116,6 +125,7 @@ object Atendente {
         m["estavaLigada"] = Preferencias(ctx).estavaLigada
         m["desviadosAuto"] = FiltroSocks.quantosDesviadosAuto()
         m["pausados"] = FiltroSocks.disjuntor.pausadosAgora(System.currentTimeMillis()).size
+        m["torInstavel"] = FiltroSocks.torInstavel()
         return m
     }
 

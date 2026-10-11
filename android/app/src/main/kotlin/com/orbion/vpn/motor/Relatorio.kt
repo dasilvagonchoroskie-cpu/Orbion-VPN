@@ -63,6 +63,7 @@ object Relatorio {
             linha("Serviço ativo", OrbionVpnService.ativo != null)
             linha("A pessoa deixou ligada", prefs.estavaLigada)
             linha("Sem internet agora", Painel.semInternet)
+            linha("Rede Tor instável agora (tudo falhando junto)", FiltroSocks.torInstavel())
             linha("Caminho de entrada", Painel.caminhoEmUso)
             linha("Conectada desde", if (Painel.conectadoDesde > 0) data(Painel.conectadoDesde) else null)
             linha("Quedas do Tor na sessão", Painel.quedasDoTor)
@@ -73,6 +74,7 @@ object Relatorio {
             linha("Bloquear conexões sem VPN", Painel.bloqueioSemVpn)
             linha("Primeiro plano", Painel.tipoPrimeiroPlano)
             linha("Avisos \"only an IP address\" do Tor (inofensivos, fora do registro)", TorManager.avisosDeIpDireto())
+            linha("Avisos internos do Tor na troca de rede (inofensivos, fora do registro)", TorManager.avisosInternosDoTor())
         }
 
         sb.secao("CONFIGURAÇÃO") {
@@ -119,6 +121,10 @@ object Relatorio {
                 append('\n')
                 f.rastro?.let { append(it).append('\n') }
             }
+        }
+
+        sb.secao("ERROS INTERNOS COM RASTRO (mais recente no fim)") {
+            append(Falhas.ler(context) ?: "Nenhum.\n")
         }
 
         sb.secao("DIÁRIO DA VPN (mais recente primeiro)") {

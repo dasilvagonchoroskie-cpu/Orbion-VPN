@@ -52,6 +52,11 @@ class TorManager(private val context: Context) {
 
         fun avisosDeIpDireto(): Long = avisosDeIpDireto.get()
 
+        /** Avisos internos inofensivos do Tor na troca de rede (ver ehRuidoConhecido). */
+        private val avisosInternosDoTor = java.util.concurrent.atomic.AtomicLong(0)
+
+        fun avisosInternosDoTor(): Long = avisosInternosDoTor.get()
+
         @Synchronized
         fun registrarLog(linha: String) {
             logDoTor.addLast(linha)
@@ -278,22 +283,45 @@ class TorManager(private val context: Context) {
         }
     }
 
+    /**
+     * Lê tudo o que o Tor escreve. Esta leitura nunca pode parar enquanto o
+     * Tor vive: se ninguém lê, o Tor trava ao escrever o próximo aviso.
+     */
     private fun lerSaida(p: Process, onProgress: (Int, String) -> Unit) {
         try {
             BufferedReader(InputStreamReader(p.inputStream)).use { r ->
                 while (true) {
                     val linha = r.readLine() ?: break
-                    if (linha.contains("is giving Tor only an IP address")) {
-                        avisosDeIpDireto.incrementAndGet()
-                        continue
+                    try {
+                        if (ehRuidoConhecido(linha)) continue
+                        registrarLog(linha)
+                        analisarLinha(linha, onProgress)
+                    } catch (_: Throwable) {
                     }
-                    registrarLog(linha)
-                    analisarLinha(linha, onProgress)
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.d(TAG, "Leitura do log do Tor encerrada: ${e.message}")
         }
+    }
+
+    /**
+     * Avisos repetitivos e inofensivos: só contados (aparecem no relatório).
+     *  - "only an IP address": app conectando direto num número (não vaza DNS);
+     *  - "Tried to open a socket with DisableNetwork set": defeito interno do
+     *    próprio Tor ao refazer as conexões numa troca de rede; ele mesmo
+     *    avisa que é inofensivo e se cala depois da primeira vez.
+     */
+    private fun ehRuidoConhecido(linha: String): Boolean = when {
+        linha.contains("is giving Tor only an IP address") -> {
+            avisosDeIpDireto.incrementAndGet()
+            true
+        }
+        linha.contains("connection_connect_sockaddr") && linha.contains("Bug:") -> {
+            avisosInternosDoTor.incrementAndGet()
+            true
+        }
+        else -> false
     }
 
     private val regexBootstrap = Regex("Bootstrapped (\\d+)%")

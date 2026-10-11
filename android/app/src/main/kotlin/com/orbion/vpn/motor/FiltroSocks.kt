@@ -47,7 +47,22 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
     companion object {
         private const val TAG = "OrbionFiltro"
         const val PORTA = 19055
-        private const val MAX_THREADS = 900
+        /**
+         * Teto de linhas (threads) do filtro. Cada conexão aberta usa duas.
+         * Na 6.1.1 o teto era 900 e o celular não aguentava: na troca de rede
+         * todos os apps reconectam ao mesmo tempo, o Android recusava criar
+         * mais linhas e o processo da VPN caía ("erro interno", 2× em 1 min).
+         * O túnel (hev) também foi limitado a 224 conexões simultâneas.
+         */
+        private const val MAX_THREADS = 480
+        /** No máximo tantas conexões esperando o Tor responder; as demais falham na hora. */
+        private const val MAX_ESPERANDO_O_TOR = 96
+        /** Saúde da rede Tor: janela para contar sucessos e falhas. */
+        private const val JANELA_SAUDE_MS = 120_000L
+        /** Uma falha só é culpa do destino se o Tor funcionou para outro há pouco. */
+        private const val SUCESSO_RECENTE_MS = 60_000L
+        /** Destinos diferentes falhando juntos, sem nenhum sucesso: a rede está instável. */
+        private const val DESTINOS_PARA_INSTAVEL = 4
         private const val OCIOSO_MS = 300_000
         private const val MAX_REGISTROS = 300
         /** Quanto esperar o Tor responder se alcançou o destino. */
@@ -92,6 +107,86 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
 
         private fun falhaConta(): Boolean = !redeEmEspera && System.currentTimeMillis() >= semCulpaAte
 
+        // ------------------------------------------------------------------
+        // Saúde da rede Tor, medida pelas próprias conexões.
+        //
+        // Na 6.1.2, com dados móveis fracos, o Tor demorava a responder e cada
+        // site que falhava 3 vezes era "pausado" (e às vezes desviado para fora
+        // do Tor) como se ELE recusasse o Tor — uma enxurrada de PAUSADO na aba
+        // Registros, um "loop de erros". Agora uma falha só pesa contra o site
+        // se o Tor acabou de funcionar para outro; quando vários sites falham
+        // juntos e nada funciona, é a rede: o Painel mostra "Conexão instável"
+        // e ninguém é pausado nem desviado.
+        // ------------------------------------------------------------------
+
+        /** Falhas seguidas de um destino: desde quando (início da 1ª tentativa) e quantas. */
+        private class FalhasDoDestino(val desde: Long, @Volatile var vezes: Int, @Volatile var ultima: Long)
+
+        private val falhasRecentes = ConcurrentHashMap<String, FalhasDoDestino>()
+        private val janela = JanelaDeSaude(JANELA_SAUDE_MS)
+        @Volatile private var ultimoSucessoPeloTor = 0L
+        @Volatile private var instavelDesde = 0L
+
+        /**
+         * A rede Tor está falhando para quase todos agora (rede fraca/instável):
+         * ou vários destinos falharam sem nada funcionar desde que começaram, ou
+         * menos de 30% das conexões deram certo nos últimos 2 minutos.
+         */
+        fun torInstavel(): Boolean = torInstavelEm(System.currentTimeMillis())
+
+        private fun torInstavelEm(agora: Long): Boolean {
+            if (instavelDesde != 0L) return true
+            val (ok, ruim) = janela.contar(agora)
+            return ok + ruim >= 10 && ok * 10 < (ok + ruim) * 3
+        }
+
+        private fun sucessoPeloTor(chave: String, agora: Long) {
+            ultimoSucessoPeloTor = agora
+            janela.anotar(agora, true)
+            falhasRecentes.remove(chave)
+            if (instavelDesde != 0L) {
+                // Voltou a funcionar depois de tudo falhar: começa a medir do zero.
+                instavelDesde = 0L
+                falhasRecentes.clear()
+                janela.limpar()
+                janela.anotar(agora, true)
+            }
+        }
+
+        /**
+         * Registra a falha (a tentativa começou em [inicio]) e diz se a culpa
+         * parece ser do DESTINO: o Tor funcionou há pouco e acerta pelo menos
+         * 70% das conexões dos outros destinos.
+         */
+        private fun culpaDoDestino(chave: String, inicio: Long, agora: Long): Boolean {
+            janela.anotar(agora, false)
+            val f = falhasRecentes.compute(chave) { _, v ->
+                if (v == null || agora - v.ultima > JANELA_SAUDE_MS) {
+                    FalhasDoDestino(inicio, 1, agora)
+                } else {
+                    v.vezes++
+                    v.ultima = agora
+                    v
+                }
+            }!!
+            if (falhasRecentes.size > 200) falhasRecentes.entries.removeIf { agora - it.value.ultima > JANELA_SAUDE_MS }
+            // Destinos que começaram a falhar depois do último sucesso.
+            val semNadaFuncionar = falhasRecentes.values.count { it.desde > ultimoSucessoPeloTor && agora - it.ultima <= JANELA_SAUDE_MS }
+            if (semNadaFuncionar >= DESTINOS_PARA_INSTAVEL && instavelDesde == 0L) instavelDesde = agora
+            if (instavelDesde != 0L) return false
+            if (ultimoSucessoPeloTor == 0L || agora - ultimoSucessoPeloTor > SUCESSO_RECENTE_MS) return false
+            val (ok, ruim) = janela.contar(agora)
+            val ruimDosOutros = (ruim - f.vezes).coerceAtLeast(0)
+            return ok >= 3 && ok * 10 >= (ok + ruimDosOutros) * 7
+        }
+
+        /** Rede trocada ou de volta: começa a medir de novo. */
+        fun recomecarSaude() {
+            falhasRecentes.clear()
+            janela.limpar()
+            instavelDesde = 0L
+        }
+
         /** Sites desviados sozinhos nesta sessão: domínio-base → quando. */
         private val desviadosAuto = ConcurrentHashMap<String, Long>()
 
@@ -126,6 +221,10 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
             disjuntor.limpar()
             redeEmEspera = false
             semCulpaAte = 0L
+            falhasRecentes.clear()
+            janela.limpar()
+            instavelDesde = 0L
+            ultimoSucessoPeloTor = 0L
         }
 
         fun contagem(): Map<String, Long> = mapOf(
@@ -229,23 +328,34 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
         while (!s.isClosed) {
             val cliente = try {
                 s.accept()
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 if (s.isClosed) return
                 Log.w(TAG, "Erro ao aceitar: ${e.message}")
+                try {
+                    Thread.sleep(50) // não gira em falso se o erro se repetir
+                } catch (_: InterruptedException) {
+                    return
+                }
                 continue
             }
             try {
                 pool.execute { atender(cliente) }
-            } catch (e: Exception) {
-                // Lotado: recusa esta conexão em vez de deixar a memória estourar.
+            } catch (e: Throwable) {
+                // Lotado, ou o Android não deixou criar mais uma linha
+                // (OutOfMemoryError: pthread_create): recusa esta conexão em
+                // vez de deixar o processo da VPN cair.
                 recusadosPorLotacao.incrementAndGet()
                 fechar(cliente)
             }
         }
     }
 
+    /** Conexões esperando a resposta do Tor agora. */
+    private val esperandoOTor = AtomicInteger(0)
+
     private fun atender(cliente: Socket) {
         var remoto: Socket? = null
+        var esperando = false
         try {
             cliente.soTimeout = 30_000
             cliente.tcpNoDelay = true
@@ -385,7 +495,18 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
             }
 
             // 4. Pela rede Tor.
+            // Muitas conexões já esperando o Tor (todo mundo reconectando
+            // depois de uma troca de rede, ou rede fraca): esta falha na hora,
+            // sem prender uma linha por até 25 s. O app tenta de novo depois.
+            if (esperandoOTor.incrementAndGet() > MAX_ESPERANDO_O_TOR) {
+                esperandoOTor.decrementAndGet()
+                recusadosPorLotacao.incrementAndGet()
+                responder(saida, 1)
+                return
+            }
+            esperando = true
             registrar(rotulo, Destino.TOR, null)
+            val inicioNoTor = System.currentTimeMillis()
             val tor = Socket()
             remoto = tor
             try {
@@ -406,7 +527,7 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
             try {
                 torIn.readFully(resp)
             } catch (e: SocketTimeoutException) {
-                falhaPeloTor(chave)
+                falhaPeloTor(chave, inicioNoTor)
                 responder(saida, 4)
                 return
             }
@@ -417,15 +538,19 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
                 else -> ByteArray(0)
             }
             if (resto.isNotEmpty()) torIn.readFully(resto)
+            esperandoOTor.decrementAndGet()
+            esperando = false
             if (resp[1].toInt() != 0) {
                 // A saída do Tor não alcançou o destino (recusado, inalcançável...).
-                falhaPeloTor(chave)
+                falhaPeloTor(chave, inicioNoTor)
                 try {
                     saida.write(resp); saida.write(resto); saida.flush()
                 } catch (_: Exception) {
                 }
                 return
             }
+            // O Tor alcançou o destino: a rede Tor está funcionando.
+            sucessoPeloTor(chave, System.currentTimeMillis())
             saida.write(resp); saida.write(resto); saida.flush()
             val inicio = System.currentTimeMillis()
             val (doCliente, doServidor) = encanarNosDoisSentidos(cliente, tor)
@@ -434,18 +559,27 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
                 // O app falou, o servidor fechou sem dizer nada: é assim que
                 // muitos serviços recusam quem chega pela rede Tor.
                 doCliente > 0 && System.currentTimeMillis() - inicio < RECUSA_SILENCIOSA_MS ->
-                    falhaPeloTor(chave)
+                    falhaPeloTor(chave, inicio)
             }
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
+            // Nada aqui pode derrubar o processo da VPN (nem um erro do Java,
+            // como faltar memória para mais uma linha): a conexão é encerrada.
         } finally {
+            if (esperando) esperandoOTor.decrementAndGet()
             fechar(cliente)
             remoto?.let { fechar(it) }
         }
     }
 
-    /** Uma falha pelo Tor só conta para o disjuntor se a rede do aparelho estava normal. */
-    private fun falhaPeloTor(chave: String) {
-        if (falhaConta()) disjuntor.falhou(chave, System.currentTimeMillis())
+    /**
+     * Uma falha pelo Tor só pesa contra o destino (pausa e, se for site, desvio
+     * automático) quando a rede do aparelho estava normal E o Tor acabou de
+     * funcionar para outro destino. Se tudo está falhando junto, é a rede.
+     */
+    private fun falhaPeloTor(chave: String, inicio: Long) {
+        val agora = System.currentTimeMillis()
+        val culpa = culpaDoDestino(chave, inicio, agora)
+        if (culpa && falhaConta()) disjuntor.falhou(chave, agora)
     }
 
     /** Bytes nos dois sentidos até um lado fechar ou ficar 5 min parado. Devolve (do app, do servidor). */
@@ -456,10 +590,14 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
         val deB = AtomicLong(0)
         try {
             pool.execute {
-                encanar(a.getInputStream(), b.getOutputStream(), deA)
-                fechar(a); fechar(b)
+                try {
+                    encanar(a.getInputStream(), b.getOutputStream(), deA)
+                } catch (_: Throwable) {
+                } finally {
+                    fechar(a); fechar(b)
+                }
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             recusadosPorLotacao.incrementAndGet()
             return 0L to 0L
         }
@@ -631,5 +769,50 @@ class Disjuntor {
 
     private fun limparAntigos(agora: Long) {
         mapa.entries.removeIf { agora - it.value.ultimoUso > ESQUECER_APOS_MS }
+    }
+}
+
+/**
+ * Sucessos e falhas pela rede Tor nos últimos [janelaMs] (contados por segundo,
+ * sem guardar nada além de números).
+ */
+class JanelaDeSaude(janelaMs: Long) {
+    private val segundos = (janelaMs / 1000).toInt().coerceAtLeast(1)
+    private val sucessos = IntArray(segundos)
+    private val falhas = IntArray(segundos)
+    private val segundoDe = LongArray(segundos) { -1L }
+
+    @Synchronized
+    fun anotar(agora: Long, ok: Boolean) {
+        val s = agora / 1000
+        val i = Math.floorMod(s, segundos.toLong()).toInt()
+        if (segundoDe[i] != s) {
+            segundoDe[i] = s
+            sucessos[i] = 0
+            falhas[i] = 0
+        }
+        if (ok) sucessos[i]++ else falhas[i]++
+    }
+
+    /** (sucessos, falhas) na janela. */
+    @Synchronized
+    fun contar(agora: Long): Pair<Int, Int> {
+        val s = agora / 1000
+        var ok = 0
+        var ruim = 0
+        for (i in 0 until segundos) {
+            if (segundoDe[i] >= 0 && s - segundoDe[i] < segundos) {
+                ok += sucessos[i]
+                ruim += falhas[i]
+            }
+        }
+        return ok to ruim
+    }
+
+    @Synchronized
+    fun limpar() {
+        segundoDe.fill(-1L)
+        sucessos.fill(0)
+        falhas.fill(0)
     }
 }

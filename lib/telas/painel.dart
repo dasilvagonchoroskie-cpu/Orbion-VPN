@@ -337,6 +337,16 @@ class _TelaPainelState extends State<TelaPainel> with SingleTickerProviderStateM
             '(poupa bateria) — volta sozinha quando a internet voltar.',
       ));
     }
+    if (s.torInstavel && !s.semInternet && s.estado == EstadoVpn.conectado) {
+      lista.add(const CartaoAviso(
+        icone: Icons.network_check,
+        cor: Cores.amarelo,
+        titulo: 'Conexão instável',
+        texto: 'A internet do aparelho está fraca ou oscilando, e a rede Tor está demorando para responder. '
+            'Os apps podem demorar a carregar.\n\n'
+            'O Orbion continua tentando sozinho, e nenhum site é mandado para fora do Tor por causa disso.',
+      ));
+    }
     if (s.estado == EstadoVpn.bloqueado) {
       lista.add(CartaoAviso(
         icone: Icons.gpp_maybe,

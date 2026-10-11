@@ -11,6 +11,10 @@ env:
   FLUTTER_VERSION: '3.47.5'
   JAVA_VERSION: '17'
   HEV_VERSION: '2.18.0'
+  # Licenças dos componentes de código aberto (Tor, túnel, Snowflake...):
+  # os scripts do motor copiam os textos para cá e o app mostra em
+  # Configurações → Sobre → Licenças de código aberto.
+  LICENCAS: assets/licencas
 
 jobs:
   apk:
@@ -97,6 +101,23 @@ jobs:
           else
             cat snowflake.log
           fi
+
+      - name: Conferir as licenças de código aberto
+        run: |
+          ls -la "$LICENCAS"
+          faltam=""
+          for obrigatoria in tor.txt hev-socks5-tunnel.txt; do
+            [ -s "$LICENCAS/$obrigatoria" ] || faltam="$faltam $obrigatoria"
+          done
+          if [ -n "$faltam" ]; then
+            if [ "${SO_ARM64:-0}" = "1" ]; then
+              echo "::warning title=licenças::faltam$faltam (motor de reserva, sem o pacote oficial)"
+            else
+              echo "::error title=licenças::faltam$faltam (o app precisa mostrar a licença dos componentes)"
+              exit 1
+            fi
+          fi
+          echo "::notice title=licenças::$(cd "$LICENCAS" && ls *.txt | grep -v LEIA-ME | tr '\n' ' ')"
 
       - name: Resumo do motor
         run: |

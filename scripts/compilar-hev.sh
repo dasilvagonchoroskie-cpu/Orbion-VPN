@@ -6,6 +6,7 @@
 set -euo pipefail
 
 DESTINO="$(realpath -m "${1:?informe a pasta jniLibs}")"
+LICENCAS_DIR="$(realpath -m "${LICENCAS:-assets/licencas}")"
 VERSAO_HEV="${HEV_VERSION:-2.18.0}"
 NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
 ABIS="arm64-v8a armeabi-v7a x86_64"
@@ -19,6 +20,16 @@ echo "NDK: $NDK"
 TRAB="$(mktemp -d)"
 git clone --quiet --depth 1 --branch "$VERSAO_HEV" --recursive \
   https://github.com/heiher/hev-socks5-tunnel "$TRAB/jni"
+
+# Licenças do túnel e das peças que ele embute (lwIP, libyaml, hev-task-system).
+mkdir -p "$LICENCAS_DIR"
+cp -f "$TRAB/jni/LICENSE" "$LICENCAS_DIR/hev-socks5-tunnel.txt"
+for parte in "$TRAB"/jni/third-part/*/; do
+  nome="$(basename "$parte")"
+  [ "$nome" = "wintun" ] && continue   # só do Windows, não entra no app
+  arq="$(find "$parte" -maxdepth 1 -type f \( -iname 'licen*' -o -iname 'copying*' \) | sort | head -1 || true)"
+  if [ -n "$arq" ]; then cp -f "$arq" "$LICENCAS_DIR/$nome.txt"; fi
+done
 
 compilar() {
   local plataforma="$1"

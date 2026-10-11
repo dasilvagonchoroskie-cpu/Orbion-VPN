@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../controlador.dart';
+import '../legal.dart';
 import '../motor.dart';
 import '../tema.dart';
 import '../util.dart';
@@ -815,7 +816,32 @@ class _TelaConfigState extends State<TelaConfig> {
             ),
           ),
         ),
+        const TituloDeSecao('🔏 PRIVACIDADE E TERMOS'),
+        const LinhaInfo(
+          icone: Icons.visibility_off,
+          corDoIcone: Cores.verde,
+          titulo: 'Não coletamos seus dados',
+          subtitulo: 'Sem cadastro, anúncios ou rastreadores. Configurações e registros ficam só neste aparelho.',
+        ),
+        Card(
+          child: Column(
+            children: [
+              _linkLegal(Icons.privacy_tip_outlined, 'Política de Privacidade', () => abrirPrivacidade(context)),
+              _linkLegal(Icons.gavel_outlined, 'Termos de Uso', () => abrirTermos(context)),
+              _linkLegal(Icons.vpn_lock_outlined, 'Como o Orbion usa a VPN', () => abrirAvisoVpn(context)),
+              _linkLegal(Icons.code, 'Licenças de código aberto', () => abrirLicencas(context, _info.versaoApp)),
+              _linkLegal(Icons.mail_outline, 'Falar com o suporte', () => Motor.executarAcao('ESCREVER_PARA_O_SUPORTE')),
+            ],
+          ),
+        ),
       ];
+
+  Widget _linkLegal(IconData icone, String titulo, VoidCallback aoTocar) => ListTile(
+        leading: Icon(icone, color: Cores.ciano),
+        title: Text(titulo),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: aoTocar,
+      );
 
   Future<void> _enviarRelatorio() async {
     setState(() => _enviandoRelatorio = true);

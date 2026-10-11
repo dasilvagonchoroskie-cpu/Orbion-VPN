@@ -1,0 +1,5 @@
+Esta pasta recebe, na hora de compilar (esteira do GitHub), os textos de
+licença dos componentes de código aberto que vão dentro do Orbion:
+Tor, libevent, OpenSSL, zlib, Zstandard, lyrebird (pacote oficial do Tor
+Project), hev-socks5-tunnel, lwIP, libyaml, hev-task-system e Snowflake.
+O app mostra todos em Configurações → Sobre → Licenças de código aberto.

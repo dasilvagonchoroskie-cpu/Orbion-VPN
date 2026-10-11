@@ -69,6 +69,10 @@ class MainActivity : FlutterActivity() {
         private const val PEDIDO_NOTIFICACAO = 4102
         private const val PEDIDO_BATERIA = 4103
 
+        /** Onde a Política de Privacidade e os Termos ficam publicados. */
+        private const val SITE_LEGAL = "https://fortalezadigitalsecurity.com.br/orbion/"
+        private const val EMAIL_SUPORTE = "fortalezadigitalsecurity@gmail.com"
+
         /** Pedidos respondidos pelo motor (processo da VPN). */
         private val DO_MOTOR = setOf(
             "status", "desligar", "novaIdentidade", "limparAvisos", "lerConfig", "salvarConfig",
@@ -134,11 +138,11 @@ class MainActivity : FlutterActivity() {
                 try {
                     val v = tarefa()
                     principal.post { resultado.success(v) }
-                } catch (e: Exception) {
-                    principal.post { resultado.error("erro", e.message, null) }
+                } catch (e: Throwable) {
+                    principal.post { resultado.error("erro", e.message ?: e.javaClass.simpleName, null) }
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             resultado.error("erro", "A tela está fechando.", null)
         }
     }
@@ -305,6 +309,23 @@ class MainActivity : FlutterActivity() {
                     ),
                 )
                 "ABRIR_PONTES" -> abrir(listOf(Triple("OK", Intent(Intent.ACTION_VIEW, Uri.parse("https://bridges.torproject.org/options")), null)))
+                // Versões publicadas da Política de Privacidade e dos Termos de Uso.
+                "ABRIR_PRIVACIDADE_ONLINE" -> abrir(listOf(Triple("OK", Intent(Intent.ACTION_VIEW, Uri.parse(SITE_LEGAL + "privacidade.html")), null)))
+                "ABRIR_TERMOS_ONLINE" -> abrir(listOf(Triple("OK", Intent(Intent.ACTION_VIEW, Uri.parse(SITE_LEGAL + "termos.html")), null)))
+                "ESCREVER_PARA_O_SUPORTE" -> abrir(
+                    listOf(
+                        Triple(
+                            "OK",
+                            Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$EMAIL_SUPORTE"))
+                                .putExtra(Intent.EXTRA_SUBJECT, "Orbion VPN — suporte"),
+                            null,
+                        ),
+                    ),
+                )
+                "FECHAR_APP" -> {
+                    finishAndRemoveTask()
+                    "OK"
+                }
                 else -> "FALHOU"
             }
         } catch (_: Exception) {

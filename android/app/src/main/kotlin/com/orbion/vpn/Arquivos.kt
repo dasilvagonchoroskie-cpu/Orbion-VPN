@@ -8,6 +8,7 @@ import android.database.MatrixCursor
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
+import com.orbion.vpn.motor.Falhas
 import java.io.File
 import java.io.FileNotFoundException
 
@@ -30,7 +31,12 @@ class Arquivos : ContentProvider() {
         fun uri(nome: String): Uri = Uri.parse("content://$AUTORIDADE/$PASTA/$nome")
     }
 
-    override fun onCreate(): Boolean = true
+    override fun onCreate(): Boolean {
+        // Primeira coisa do processo da tela: guarda o rastro de qualquer erro
+        // não tratado (vai para o relatório do suporte).
+        context?.let { Falhas.instalar(it, "tela", conterNoFundo = true) }
+        return true
+    }
 
     private fun arquivo(uri: Uri): File? {
         val ctx = context ?: return null

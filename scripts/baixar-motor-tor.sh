@@ -18,6 +18,9 @@ ASSETS="$(realpath -m "${2:?informe a pasta assets}")"
 BASE="https://dist.torproject.org/torbrowser"
 CHAVE_TOR_BROWSER="EF6E286DDA85EA2A4BA7DE684E2C6E8793298290"
 
+# Pasta das licenças relativa ao repositório (antes de mudar de pasta).
+OLDPWD_LICENCAS="$(realpath -m "${LICENCAS:-assets/licencas}")"
+
 TRAB="$(mktemp -d)"
 cd "$TRAB"
 
@@ -63,6 +66,13 @@ for arq in aarch64 armv7 x86_64; do
 
   mkdir -p "x-$arq" && tar -xzf "$nome" -C "x-$arq"
   echo "::notice title=pacote $arq::$(cd "x-$arq" && find . -type f | sed 's#^\./##' | sort | tr '\n' ' ' | cut -c1-900)"
+
+  # Licenças (Tor, libevent, OpenSSL, zlib, zstd, lyrebird...): o app é
+  # obrigado a mostrá-las por distribuir esses programas.
+  if [ -n "${LICENCAS:-}" ]; then
+    mkdir -p "$OLDPWD_LICENCAS"
+    find "x-$arq" -path '*/docs/*' -name '*.txt' -exec cp -f {} "$OLDPWD_LICENCAS/" \;
+  fi
 
   tor="$(find "x-$arq" -type f \( -iname 'libtor.so' -o -name 'tor' \) | head -1)"
   lyre="$(find "x-$arq" -type f \( -iname '*lyrebird*' -o -iname '*obfs4proxy*' \) ! -name '*.json' | head -1)"

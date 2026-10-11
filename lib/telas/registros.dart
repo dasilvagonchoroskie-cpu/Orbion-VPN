@@ -194,6 +194,14 @@ class _TelaRegistrosState extends State<TelaRegistros> {
           ],
         ),
         const SizedBox(height: 10),
+        if (widget.c.status.torInstavel)
+          const CartaoAviso(
+            icone: Icons.network_check,
+            cor: Cores.amarelo,
+            titulo: 'Conexão instável agora',
+            texto: 'A internet do aparelho está fraca ou oscilando. As falhas destes minutos são da rede, não dos sites: '
+                'nenhum site é pausado nem mandado para fora do Tor por causa delas.',
+          ),
         if (_r.lista.isNotEmpty)
           const Padding(
             padding: EdgeInsets.only(bottom: 8),

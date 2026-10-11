@@ -29,6 +29,9 @@ echo "Snowflake $TAG"
 
 TRAB="$(mktemp -d)"
 git clone --quiet --depth 1 --branch "$TAG" "$REPO" "$TRAB/snowflake"
+LICENCAS_DIR="$(realpath -m "${LICENCAS:-assets/licencas}")"
+mkdir -p "$LICENCAS_DIR"
+[ -f "$TRAB/snowflake/LICENSE" ] && cp -f "$TRAB/snowflake/LICENSE" "$LICENCAS_DIR/snowflake.txt"
 TC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
 declare -A GOARCH=( [arm64-v8a]=arm64 [armeabi-v7a]=arm [x86_64]=amd64 )

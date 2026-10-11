@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'controlador.dart';
+import 'legal.dart';
 import 'tema.dart';
 import 'telas/apps.dart';
 import 'telas/config.dart';
@@ -10,6 +11,7 @@ import 'telas/registros.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  registrarLicencas();
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
@@ -38,15 +40,31 @@ class Inicio extends StatefulWidget {
   State<Inicio> createState() => _InicioState();
 }
 
+/// O que a tela mostra: carregando, boas-vindas (aceite) ou o app.
+enum _Fase { carregando, boasVindas, app }
+
 class _InicioState extends State<Inicio> with WidgetsBindingObserver {
   final ControladorOrbion _c = ControladorOrbion();
   int _aba = 0;
+  _Fase _fase = _Fase.carregando;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Só redesenha esta raiz quando a fase muda (o status muda a cada
+    // segundo e cada aba já se redesenha sozinha).
+    _c.addListener(_conferirFase);
     _c.iniciar();
+  }
+
+  void _conferirFase() {
+    final fase = !_c.carregado
+        ? _Fase.carregando
+        : _c.consentimentoCompleto
+            ? _Fase.app
+            : _Fase.boasVindas;
+    if (fase != _fase && mounted) setState(() => _fase = fase);
   }
 
   @override
@@ -64,6 +82,7 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _c.removeListener(_conferirFase);
     _c.dispose();
     super.dispose();
   }
@@ -72,6 +91,14 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    switch (_fase) {
+      case _Fase.carregando:
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      case _Fase.boasVindas:
+        return TelaBoasVindas(c: _c);
+      case _Fase.app:
+        break;
+    }
     final telas = [
       TelaPainel(c: _c, irPara: _irPara, visivel: _aba == 0),
       TelaApps(c: _c, irPara: _irPara),

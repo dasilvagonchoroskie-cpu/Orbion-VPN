@@ -135,3 +135,82 @@ String? normalizarDominio(String texto) {
   if (t.length < 3 || t.length > 253 || !_dominioValido.hasMatch(t)) return null;
   return t;
 }
+
+// ---------------------------------------------------------------------------
+// Termos, privacidade e aviso de uso da VPN
+// ---------------------------------------------------------------------------
+
+/// Versão dos Termos de Uso + Política de Privacidade. Mudou de forma
+/// importante? Suba o número: o app pede o aceite de novo.
+const int versaoDosTermos = 1;
+
+/// Versão do aviso "como o Orbion usa a VPN do Android" (o motor usa o mesmo
+/// número em Preferencias.VERSAO_AVISO_VPN).
+const int versaoDoAvisoVpn = 1;
+
+enum TipoDeBloco { titulo, secao, subsecao, paragrafo, item }
+
+class BlocoDeTexto {
+  final TipoDeBloco tipo;
+  final String texto;
+  const BlocoDeTexto(this.tipo, this.texto);
+}
+
+/// Lê os documentos de assets/legal ("# título", "## seção", "### subseção",
+/// "- item" e parágrafos separados por linha em branco). O site usa o mesmo
+/// formato (scripts/gerar-paginas-legais.py), então o texto é sempre igual.
+List<BlocoDeTexto> lerDocumento(String texto) {
+  final blocos = <BlocoDeTexto>[];
+  final paragrafo = StringBuffer();
+  void fechar() {
+    if (paragrafo.isNotEmpty) {
+      blocos.add(BlocoDeTexto(TipoDeBloco.paragrafo, paragrafo.toString().trim()));
+      paragrafo.clear();
+    }
+  }
+
+  for (final bruta in texto.split('\n')) {
+    final linha = bruta.trimRight();
+    if (linha.trim().isEmpty) {
+      fechar();
+    } else if (linha.startsWith('### ')) {
+      fechar();
+      blocos.add(BlocoDeTexto(TipoDeBloco.subsecao, linha.substring(4).trim()));
+    } else if (linha.startsWith('## ')) {
+      fechar();
+      blocos.add(BlocoDeTexto(TipoDeBloco.secao, linha.substring(3).trim()));
+    } else if (linha.startsWith('# ')) {
+      fechar();
+      blocos.add(BlocoDeTexto(TipoDeBloco.titulo, linha.substring(2).trim()));
+    } else if (linha.startsWith('- ')) {
+      fechar();
+      blocos.add(BlocoDeTexto(TipoDeBloco.item, linha.substring(2).trim()));
+    } else {
+      if (paragrafo.isNotEmpty) paragrafo.write(' ');
+      paragrafo.write(linha.trim());
+    }
+  }
+  fechar();
+  return blocos;
+}
+
+/// Nome legível de um componente a partir do arquivo de licença.
+String nomeDoComponente(String caminho) {
+  final arquivo = caminho.split('/').last.replaceAll(RegExp(r'\.txt$'), '');
+  const nomes = {
+    'tor': 'Tor',
+    'libevent': 'libevent',
+    'openssl': 'OpenSSL',
+    'zlib': 'zlib',
+    'zstd-bsd': 'Zstandard (zstd)',
+    'zstd-gpl2': 'Zstandard (zstd), licença GPLv2',
+    'lyrebird': 'lyrebird (obfs4)',
+    'conjure': 'Conjure',
+    'hev-socks5-tunnel': 'hev-socks5-tunnel',
+    'hev-task-system': 'hev-task-system',
+    'lwip': 'lwIP',
+    'yaml': 'libyaml',
+    'snowflake': 'Snowflake',
+  };
+  return nomes[arquivo] ?? arquivo;
+}

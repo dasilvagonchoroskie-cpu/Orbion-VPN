@@ -146,6 +146,9 @@ class StatusVpn {
   final bool aplicandoRotas;
   final bool servicoAtivo;
   final bool semInternet;
+
+  /// A rede Tor está falhando para quase tudo agora (internet fraca/oscilando).
+  final bool torInstavel;
   final bool estavaLigada;
   final bool vpnSempreAtiva;
   final bool bloqueioSemVpn;
@@ -171,6 +174,7 @@ class StatusVpn {
     this.aplicandoRotas = false,
     this.servicoAtivo = false,
     this.semInternet = false,
+    this.torInstavel = false,
     this.estavaLigada = false,
     this.vpnSempreAtiva = false,
     this.bloqueioSemVpn = false,
@@ -197,6 +201,7 @@ class StatusVpn {
         aplicandoRotas: _bool(m['aplicandoRotas']),
         servicoAtivo: _bool(m['servicoAtivo']),
         semInternet: _bool(m['semInternet']),
+        torInstavel: _bool(m['torInstavel']),
         estavaLigada: _bool(m['estavaLigada']),
         vpnSempreAtiva: _bool(m['vpnSempreAtiva']),
         bloqueioSemVpn: _bool(m['bloqueioSemVpn']),
@@ -231,6 +236,12 @@ class Config {
   final bool contornoAutomatico;
   final Set<String> avisosDispensados;
 
+  /// Versão dos termos/privacidade aceita (0 = nunca).
+  final int termosAceitos;
+
+  /// Versão do aviso de uso da VPN aceita (0 = nunca).
+  final int avisoVpnAceito;
+
   const Config({
     this.killSwitch = true,
     this.bloquearRastreadores = true,
@@ -249,6 +260,8 @@ class Config {
     this.bridges = '',
     this.contornoAutomatico = true,
     this.avisosDispensados = const {},
+    this.termosAceitos = 0,
+    this.avisoVpnAceito = 0,
   });
 
   factory Config.deMapa(Map<dynamic, dynamic> m) => Config(
@@ -269,6 +282,8 @@ class Config {
         bridges: (m['bridges'] as String?) ?? '',
         contornoAutomatico: _bool(m['contornoAutomatico'], true),
         avisosDispensados: _textos(m['avisosDispensados']).toSet(),
+        termosAceitos: _int(m['termosAceitos']),
+        avisoVpnAceito: _int(m['avisoVpnAceito']),
       );
 }
 
