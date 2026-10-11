@@ -6,16 +6,19 @@
     <!-- Dois tipos de serviço em primeiro plano. O Android 14+ aceita
          "systemExempted" para apps de VPN autorizados; se por algum motivo
          recusar (permissão de VPN revogada, outra VPN assumiu), o serviço
-         cai para "specialUse" em vez de o app fechar. Era exatamente essa
-         recusa sem tratamento que derrubava a versão antiga. -->
+         cai para "specialUse" em vez de o app fechar. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Pergunta direta "Permitir que o Orbion rode em segundo plano?".
+         Se a Play Store pedir para tirar, basta apagar esta linha: o app
+         percebe sozinho e passa a abrir as telas de bateria. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- Lista de aplicativos na aba Apps (escolher quem fica fora do túnel). -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- Sem QUERY_ALL_PACKAGES (a Play Store não aceita para VPN): a lista de
+         apps vem dos apps com ícone na tela inicial, mais os pacotes
+         declarados em <queries> lá embaixo. -->
 
     <application
         android:name="${applicationName}"
@@ -25,6 +28,7 @@
         android:allowBackup="false"
         android:supportsRtl="true">
 
+        <!-- A TELA (Flutter). Roda no processo principal. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -43,10 +47,11 @@
             </intent-filter>
         </activity>
 
-        <!-- O motor da VPN. Fica no mesmo processo do app, mas não depende da
-             tela: o Flutter só conversa com ele pelo canal "orbion/motor". -->
+        <!-- O MOTOR, num processo próprio (":vpn"). Se a tela for fechada,
+             travar ou for encerrada pelo Android, a VPN continua. -->
         <service
             android:name=".motor.OrbionVpnService"
+            android:process=":vpn"
             android:exported="false"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:foregroundServiceType="systemExempted|specialUse">
@@ -63,8 +68,23 @@
                 android:value="vpn" />
         </service>
 
+        <!-- Ponte tela ↔ motor. Interna: só o próprio Orbion fala com ela. -->
+        <provider
+            android:name=".motor.Ponte"
+            android:authorities="com.orbion.vpn.ponte"
+            android:process=":vpn"
+            android:exported="false" />
+
+        <!-- Vigia de 15 minutos: religa a VPN se o Android a derrubou. -->
+        <service
+            android:name=".motor.Vigia"
+            android:process=":vpn"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="true" />
+
         <receiver
             android:name=".motor.BootReceiver"
+            android:process=":vpn"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
@@ -80,6 +100,7 @@
     </application>
 
     <queries>
+        <!-- Apps com ícone: é a lista da aba Apps e da rota inteligente. -->
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -88,5 +109,26 @@
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
         </intent>
+        <!-- Serviços do Google sem ícone (entregam as notificações de todos
+             os apps): a rota inteligente precisa enxergá-los. -->
+        <package android:name="com.google.android.gms" />
+        <package android:name="com.google.android.gsf" />
+        <!-- Telas de bateria e de início automático de cada marca. -->
+        <package android:name="com.miui.securitycenter" />
+        <package android:name="com.miui.powerkeeper" />
+        <package android:name="com.samsung.android.lool" />
+        <package android:name="com.samsung.android.sm" />
+        <package android:name="com.huawei.systemmanager" />
+        <package android:name="com.hihonor.systemmanager" />
+        <package android:name="com.coloros.safecenter" />
+        <package android:name="com.oppo.safe" />
+        <package android:name="com.coloros.oppoguardelf" />
+        <package android:name="com.oneplus.security" />
+        <package android:name="com.vivo.permissionmanager" />
+        <package android:name="com.iqoo.secure" />
+        <package android:name="com.vivo.abe" />
+        <package android:name="com.asus.mobilemanager" />
+        <package android:name="com.evenwell.powersaving.g3" />
+        <package android:name="com.transsion.phonemaster" />
     </queries>
 </manifest>

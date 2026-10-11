@@ -54,14 +54,26 @@ class TorManager(private val context: Context) {
         @Synchronized
         fun limparLog() = logDoTor.clear()
 
-        /** Lê a versão do Tor embutido (para a tela "Sobre"). */
+        /** Pouca memória no aparelho: guarda só o fim do log. */
+        @Synchronized
+        fun aliviarMemoria() {
+            while (logDoTor.size > 80) logDoTor.removeFirst()
+        }
+
+        @Volatile private var versaoGuardada: String? = null
+
+        /** Lê a versão do Tor embutido (para a tela "Sobre"). Só roda o programa uma vez. */
         fun versao(context: Context): String {
+            versaoGuardada?.let { return it }
             val bin = Transportes.binario(context, Transportes.BINARIO_TOR) ?: return "não encontrado"
             return try {
                 val p = ProcessBuilder(bin.absolutePath, "--version").redirectErrorStream(true).start()
                 val saida = p.inputStream.bufferedReader().use { it.readText() }
                 p.waitFor()
-                Regex("Tor version ([0-9.a-z-]+)").find(saida)?.groupValues?.get(1) ?: saida.lineSequence().firstOrNull()?.take(60) ?: "?"
+                val v = Regex("Tor version ([0-9.a-z-]+)").find(saida)?.groupValues?.get(1)
+                    ?: saida.lineSequence().firstOrNull()?.take(60) ?: "?"
+                versaoGuardada = v
+                v
             } catch (e: Exception) {
                 "erro: ${e.message}"
             }
@@ -112,7 +124,9 @@ class TorManager(private val context: Context) {
             lastError = null
             contornouBloqueio = false
             torEncerrouSozinho = false
-            stopRequested.set(false)
+            // stopRequested NÃO é zerado aqui: cada conexão usa um TorManager
+            // novo, e um pedido de parada que chegou antes do início vale.
+            if (stopRequested.get()) return false
 
             val tor = File(context.applicationInfo.nativeLibraryDir, Transportes.BINARIO_TOR)
             if (!tor.exists()) {
@@ -127,7 +141,14 @@ class TorManager(private val context: Context) {
             }
 
             matarTorEsquecido()
-            val ocupada = portaOcupada()
+            // Um Tor que acabou de ser parado pode levar um instante para
+            // soltar as portas: espera até 3 s antes de dizer que estão ocupadas.
+            var ocupada = portaOcupada()
+            val limite = System.currentTimeMillis() + 3_000
+            while (ocupada != null && System.currentTimeMillis() < limite && !stopRequested.get()) {
+                Thread.sleep(250)
+                ocupada = portaOcupada()
+            }
             if (ocupada != null) {
                 lastError = "A porta $ocupada do aparelho já está em uso por outro aplicativo. " +
                     "Feche outros apps de Tor/VPN e tente de novo."
@@ -377,6 +398,9 @@ class TorManager(private val context: Context) {
     /** Pede circuitos novos (outro IP de saída). null = deu certo. */
     fun novaIdentidade(): String? = controlar("SIGNAL NEWNYM")
 
+    /** Muda a rotação de identidade na hora, sem reconectar. */
+    fun ajustarRotacao(segundos: Int): String? = controlar("SETCONF MaxCircuitDirtiness=$segundos")
+
     /**
      * A rede do aparelho mudou (Wi-Fi ↔ dados móveis). As conexões antigas do
      * Tor morreram junto com a rede antiga; desligar e religar a rede dele
@@ -384,14 +408,58 @@ class TorManager(private val context: Context) {
      */
     fun redeMudou(): String? = controlar("SETCONF DisableNetwork=1", "SETCONF DisableNetwork=0", "SIGNAL ACTIVE")
 
-    fun stop() {
+    /**
+     * Avisa a escada de conexão para parar e pede ao Tor para sair.
+     * Não espera nada: pode ser chamado de qualquer linha, até da principal.
+     */
+    fun sinalizarParada() {
         stopRequested.set(true)
-        matarProcesso()
         try {
-            pidFile.delete()
+            process?.destroy()
         } catch (_: Exception) {
         }
+    }
+
+    /**
+     * Para o Tor sem bloquear quem chamou. Se em meio segundo ele ainda não
+     * saiu, é encerrado à força; o arquivo de pid só é apagado depois que ele
+     * sumiu de verdade (assim o próximo início sabe quem encerrar).
+     */
+    fun stop() {
+        stopRequested.set(true)
+        val p = process
+        process = null
         isReady = false
         bootstrapPercent = 0
+        val pidAntigo = lerPid()
+        if (p == null) {
+            apagarPid(pidAntigo)
+            return
+        }
+        try {
+            p.destroy()
+        } catch (_: Exception) {
+        }
+        Filas.depois(500) {
+            try {
+                if (p.isAlive) p.destroyForcibly()
+            } catch (_: Exception) {
+            }
+            apagarPid(pidAntigo)
+        }
+    }
+
+    private fun lerPid(): String? = try {
+        if (pidFile.exists()) pidFile.readText().trim() else null
+    } catch (_: Exception) {
+        null
+    }
+
+    /** Apaga o arquivo de pid só se ainda for o do Tor que foi parado. */
+    private fun apagarPid(pidEsperado: String?) {
+        try {
+            if (lerPid() == pidEsperado) pidFile.delete()
+        } catch (_: Exception) {
+        }
     }
 }

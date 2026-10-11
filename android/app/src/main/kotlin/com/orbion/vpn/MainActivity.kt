@@ -2,46 +2,57 @@ package com.orbion.vpn
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.content.ComponentName
 import android.content.Intent
-import android.content.pm.ApplicationInfo
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
 import android.net.VpnService
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.widget.Toast
-import com.orbion.vpn.motor.AppsProblematicos
-import com.orbion.vpn.motor.DetectorDeProblemas
 import com.orbion.vpn.motor.Diagnostico
-import com.orbion.vpn.motor.FiltroSocks
+import com.orbion.vpn.motor.Eventos
+import com.orbion.vpn.motor.Fabricantes
 import com.orbion.vpn.motor.OrbionVpnService
-import com.orbion.vpn.motor.Painel
-import com.orbion.vpn.motor.Preferencias
-import com.orbion.vpn.motor.TorManager
-import com.orbion.vpn.motor.Transportes
-import com.orbion.vpn.motor.TunelHev
+import com.orbion.vpn.motor.PonteCliente
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /**
  * A tela é toda em Flutter. Esta classe só faz a ponte: recebe os pedidos
- * da interface pelo canal "orbion/motor" e repassa ao motor nativo.
+ * da interface pelo canal "orbion/motor" e repassa ao motor, que roda em
+ * OUTRO processo (":vpn") — se esta tela fechar ou travar, a VPN continua.
+ *
+ * Regra: nada que possa demorar roda na linha principal. Tudo o que fala com
+ * o motor ou com o sistema vai para uma linha de fundo, e a resposta volta
+ * para a tela quando fica pronta. É isso que evita o "O app não está
+ * respondendo".
  */
 class MainActivity : FlutterActivity() {
 
     private val principal = Handler(Looper.getMainLooper())
-    private val fundo = Executors.newCachedThreadPool()
+    private val fundo: ExecutorService = Executors.newFixedThreadPool(4) { r ->
+        Thread(r, "orbion-tela").apply { isDaemon = true }
+    }
+    private val ponte by lazy { PonteCliente(applicationContext) }
+
+    /** Só para lembretes da tela (o motor tem as configurações dele). */
+    private val prefsTela: SharedPreferences by lazy { getSharedPreferences("orbion_tela", MODE_PRIVATE) }
+
     private var resultadoVpnPendente: MethodChannel.Result? = null
+    private var reinicioPendente = false
+    private var origemPendente = OrbionVpnService.ORIGEM_TELA
     private var inicioPedidoBateria = 0L
     private var tentativasBateria = 0
     private var pedidoBateriaAberto = false
@@ -52,6 +63,26 @@ class MainActivity : FlutterActivity() {
         private const val PEDIDO_VPN = 4101
         private const val PEDIDO_NOTIFICACAO = 4102
         private const val PEDIDO_BATERIA = 4103
+
+        /** Pedidos respondidos pelo motor (processo da VPN). */
+        private val DO_MOTOR = setOf(
+            "status", "desligar", "novaIdentidade", "limparAvisos", "lerConfig", "salvarConfig",
+            "confirmar", "desfazerConfirmacoes", "registros", "logTecnico", "diagnostico",
+            "avisosRapidos", "infoMotor", "listarApps", "rotas", "rotaDeApp", "rotaDeDominio", "eventos",
+        )
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // Acorda o processo da VPN e carrega os lembretes da tela, longe da
+        // linha principal.
+        fundo.execute {
+            try {
+                prefsTela.contains("_")
+                ponte.chamar("ping", null)
+            } catch (_: Exception) {
+            }
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -72,129 +103,78 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun atender(chamada: MethodCall, resultado: MethodChannel.Result) {
-        val prefs = Preferencias(this)
-        when (chamada.method) {
-            "status" -> resultado.success(Painel.comoMapa())
-
-            "conectar" -> conectar(resultado)
-            "desconectar" -> {
-                OrbionVpnService.desligar(this)
-                resultado.success(true)
-            }
-            "reconectar" -> {
-                if (VpnService.prepare(this) != null) {
-                    conectar(resultado)
-                } else {
-                    OrbionVpnService.reiniciar(this)
-                    resultado.success(true)
-                }
-            }
-            "novaIdentidade" -> {
-                Painel.avisoDeIdentidade = null
-                OrbionVpnService.novaIdentidade(this)
-                resultado.success(true)
-            }
-            "limparAvisos" -> {
-                Painel.avisoDeIdentidade = null
-                Painel.contornoDeBloqueio = null
-                resultado.success(true)
-            }
-
-            "lerConfig" -> resultado.success(prefs.comoMapa())
-            "salvarConfig" -> {
-                val mapa = chamada.arguments as? Map<*, *>
-                if (mapa != null) prefs.aplicar(mapa)
-                resultado.success(prefs.comoMapa())
-            }
-
-            "listarApps" -> {
-                val incluirSistema = chamada.argument<Boolean>("incluirSistema") ?: false
-                emSegundoPlano(resultado) { listarApps(incluirSistema) }
-            }
+        when (val metodo = chamada.method) {
+            "conectar" -> conectar(resultado, reiniciar = false, origem = chamada.argument<String>("origem") ?: OrbionVpnService.ORIGEM_TELA)
+            "reconectar" -> conectar(resultado, reiniciar = true, origem = OrbionVpnService.ORIGEM_TELA)
+            "executarAcao" -> executarAcao(chamada.argument<String>("acao") ?: "", resultado)
             "icones" -> {
                 val pacotes = chamada.argument<List<String>>("pacotes") ?: emptyList()
                 emSegundoPlano(resultado) { pacotes.associateWith { icone(it) }.filterValues { it != null } }
             }
-
-            "registros" -> {
-                val max = chamada.argument<Int>("max") ?: 200
-                resultado.success(
-                    mapOf(
-                        "contagem" to FiltroSocks.contagem(),
-                        "registros" to FiltroSocks.registros(max).map {
-                            mapOf("dominio" to it.dominio, "destino" to it.destino.name, "quando" to it.quando)
-                        },
-                    ),
-                )
+            "fechamentos" -> emSegundoPlano(resultado) {
+                Eventos.fechamentos(this, 16, comRastro = true).filter { it.inesperado }.map { it.comoMapa() }
             }
-            "logTecnico" -> {
-                val max = chamada.argument<Int>("max") ?: 300
-                emSegundoPlano(resultado) {
-                    mapOf("tor" to TorManager.lerLog(max), "tunel" to TunelHev.lerLog(this, max))
-                }
-            }
-            "suspeitas" -> emSegundoPlano(resultado) {
-                DetectorDeProblemas.analisar(this).map {
-                    mapOf(
-                        "servidor" to it.servidor, "tentativas" to it.tentativas,
-                        "servico" to it.nomeDoServico, "motivo" to it.motivo?.titulo,
-                        "explicacao" to it.motivo?.explicacao,
-                    )
-                }
-            }
-            "appsProblematicos" -> emSegundoPlano(resultado) {
-                AppsProblematicos.instaladosNoAparelho(this).map {
-                    mapOf("pacote" to it.pacote, "nome" to it.nome, "motivo" to it.motivo.titulo, "explicacao" to it.motivo.explicacao)
-                }
-            }
-            "diagnostico" -> emSegundoPlano(resultado) {
-                Diagnostico.verificar(this).map { it.comoMapa() }
-            }
-            "infoMotor" -> emSegundoPlano(resultado) { infoMotor() }
-            "avisosRapidos" -> resultado.success(avisosRapidos())
-
-            "executarAcao" -> {
-                val acao = chamada.argument<String>("acao") ?: ""
-                resultado.success(executarAcao(acao))
-            }
-            "confirmar" -> {
-                // A pessoa confirmou um ajuste que o Android não deixa o app conferir.
-                val id = chamada.argument<String>("id") ?: ""
-                if (id.isNotEmpty()) prefs.avisosDispensados = prefs.avisosDispensados + (Diagnostico.PREFIXO + id)
-                resultado.success(prefs.comoMapa())
-            }
-            "desfazerConfirmacoes" -> {
-                prefs.avisosDispensados = prefs.avisosDispensados.filterNot { it.startsWith(Diagnostico.PREFIXO) }.toSet()
-                resultado.success(prefs.comoMapa())
+            in DO_MOTOR -> {
+                val args = chamada.arguments
+                emSegundoPlano(resultado) { ponte.chamar(metodo, args) }
             }
             else -> resultado.notImplemented()
         }
     }
 
-    // ------------------------------------------------------------------
-
-    private fun conectar(resultado: MethodChannel.Result) {
-        val pedido = try {
-            VpnService.prepare(this)
-        } catch (e: Exception) {
-            resultado.error("vpn", "Não foi possível pedir a permissão de VPN: ${e.message}", null)
-            return
-        }
-        if (pedido == null) {
-            OrbionVpnService.ligar(this)
-            resultado.success(true)
-            return
-        }
-        resultadoVpnPendente?.success(false)
-        resultadoVpnPendente = resultado
+    private fun emSegundoPlano(resultado: MethodChannel.Result, tarefa: () -> Any?) {
         try {
-            @Suppress("DEPRECATION")
-            startActivityForResult(pedido, PEDIDO_VPN)
+            fundo.execute {
+                try {
+                    val v = tarefa()
+                    principal.post { resultado.success(v) }
+                } catch (e: Exception) {
+                    principal.post { resultado.error("erro", e.message, null) }
+                }
+            }
         } catch (e: Exception) {
-            resultadoVpnPendente = null
-            resultado.error("vpn", "O Android não abriu a tela de permissão de VPN: ${e.message}", null)
+            resultado.error("erro", "A tela está fechando.", null)
         }
     }
+
+    // ------------------------------------------------------------------
+    // Ligar a VPN (permissão de VPN → serviço no processo ":vpn")
+    // ------------------------------------------------------------------
+
+    private fun conectar(resultado: MethodChannel.Result, reiniciar: Boolean, origem: String) {
+        fundo.execute {
+            val pedido = try {
+                VpnService.prepare(this)
+            } catch (e: Exception) {
+                principal.post { resultado.error("vpn", "Não foi possível pedir a permissão de VPN: ${e.message}", null) }
+                return@execute
+            }
+            principal.post {
+                if (pedido == null) {
+                    if (iniciarServico(reiniciar, origem)) {
+                        resultado.success(true)
+                    } else {
+                        resultado.error("vpn", "O Android não deixou iniciar a VPN agora. Tente de novo.", null)
+                    }
+                    return@post
+                }
+                resultadoVpnPendente?.success(false)
+                resultadoVpnPendente = resultado
+                reinicioPendente = reiniciar
+                origemPendente = origem
+                try {
+                    @Suppress("DEPRECATION")
+                    startActivityForResult(pedido, PEDIDO_VPN)
+                } catch (e: Exception) {
+                    resultadoVpnPendente = null
+                    resultado.error("vpn", "O Android não abriu a tela de permissão de VPN: ${e.message}", null)
+                }
+            }
+        }
+    }
+
+    private fun iniciarServico(reiniciar: Boolean, origem: String): Boolean =
+        if (reiniciar) OrbionVpnService.reiniciar(this, origem) else OrbionVpnService.ligar(this, origem)
 
     @Deprecated("API antiga, ainda é o jeito mais simples dentro do FlutterActivity")
     @Suppress("DEPRECATION")
@@ -211,53 +191,16 @@ class MainActivity : FlutterActivity() {
             val r = resultadoVpnPendente
             resultadoVpnPendente = null
             if (resultCode == RESULT_OK) {
-                OrbionVpnService.ligar(this)
-                r?.success(true)
+                r?.success(iniciarServico(reinicioPendente, origemPendente))
             } else {
                 r?.success(false)
             }
         }
     }
 
-    private fun <T> emSegundoPlano(resultado: MethodChannel.Result, tarefa: () -> T) {
-        fundo.execute {
-            try {
-                val v = tarefa()
-                principal.post { resultado.success(v) }
-            } catch (e: Exception) {
-                principal.post { resultado.error("erro", e.message, null) }
-            }
-        }
-    }
-
-    @SuppressLint("QueryPermissionsNeeded")
-    private fun listarApps(incluirSistema: Boolean): List<Map<String, Any>> {
-        val pm = packageManager
-        val apps = if (Build.VERSION.SDK_INT >= 33) {
-            pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
-        } else {
-            @Suppress("DEPRECATION")
-            pm.getInstalledApplications(0)
-        }
-        return apps.asSequence()
-            .filter { it.packageName != packageName }
-            .filter { pm.checkPermission(Manifest.permission.INTERNET, it.packageName) == PackageManager.PERMISSION_GRANTED }
-            .map { info ->
-                val sistema = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0 &&
-                    (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0
-                Triple(info, sistema, pm.getLaunchIntentForPackage(info.packageName) != null)
-            }
-            .filter { (_, sistema, temTela) -> incluirSistema || !sistema || temTela }
-            .map { (info, sistema, _) ->
-                mapOf(
-                    "pacote" to info.packageName,
-                    "nome" to (pm.getApplicationLabel(info)?.toString() ?: info.packageName),
-                    "sistema" to sistema,
-                )
-            }
-            .sortedBy { (it["nome"] as String).lowercase() }
-            .toList()
-    }
+    // ------------------------------------------------------------------
+    // Ícones dos apps (aba Apps)
+    // ------------------------------------------------------------------
 
     private fun icone(pacote: String): ByteArray? = try {
         val d = packageManager.getApplicationIcon(pacote)
@@ -274,153 +217,147 @@ class MainActivity : FlutterActivity() {
         null
     }
 
-    private fun infoMotor(): Map<String, Any?> {
-        val versaoApp = try {
-            packageManager.getPackageInfo(packageName, 0).versionName
+    // ------------------------------------------------------------------
+    // Telas do Android que a pessoa precisa ver
+    // ------------------------------------------------------------------
+
+    /** Executa a ação pedida pela tela. Responde "OK", "FALHOU" ou um código específico. */
+    private fun executarAcao(acao: String, resultado: MethodChannel.Result) {
+        if (acao == "PEDIR_NOTIFICACAO") {
+            // Lê o lembrete fora da linha principal e só depois abre a tela.
+            fundo.execute {
+                val jaPediu = prefsTela.getBoolean("notificacao_pedida", false)
+                if (!jaPediu) prefsTela.edit().putBoolean("notificacao_pedida", true).apply()
+                principal.post { resultado.success(pedirNotificacao(jaPediu)) }
+            }
+            return
+        }
+        val codigo = try {
+            when (acao) {
+                "ISENTAR_BATERIA" -> liberarBateria()
+                "ABRIR_BATERIA_MARCA" -> abrirTelaDeBateria()
+                "ABRIR_AUTOSTART" -> abrirInicioAutomatico()
+                "ABRIR_DNS_PRIVADO" -> abrir(
+                    listOf(
+                        Triple("OK", Intent("android.settings.PRIVATE_DNS_SETTINGS"), null),
+                        Triple("OK", Intent(Settings.ACTION_WIRELESS_SETTINGS), "Procure \"DNS Privado\" (Private DNS) e escolha \"Desativado\" (Off)."),
+                    ),
+                )
+                "PEDIR_NOTIFICACAO_INICIO" -> {
+                    if (Build.VERSION.SDK_INT >= 33 &&
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), PEDIDO_NOTIFICACAO)
+                    }
+                    "OK"
+                }
+                "ABRIR_VPN" -> abrir(listOf(Triple("OK", Intent(Settings.ACTION_VPN_SETTINGS), null)))
+                "ABRIR_APP_INFO" -> abrir(listOf(Triple("APP_INFO", intentDeInformacoes(), null)))
+                "ABRIR_DESENVOLVEDOR" -> abrir(
+                    listOf(
+                        Triple("OK", Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS), null),
+                        Triple("OK", Intent(Settings.ACTION_DEVICE_INFO_SETTINGS), "Toque 7 vezes em \"Número da versão\" (Build number) para liberar as opções do desenvolvedor."),
+                    ),
+                )
+                "ABRIR_PONTES" -> abrir(listOf(Triple("OK", Intent(Intent.ACTION_VIEW, Uri.parse("https://bridges.torproject.org/options")), null)))
+                else -> "FALHOU"
+            }
         } catch (_: Exception) {
-            "?"
+            "FALHOU"
         }
-        return mapOf(
-            "versaoApp" to versaoApp,
-            "versaoTor" to TorManager.versao(this),
-            "abi" to (Build.SUPPORTED_ABIS.firstOrNull() ?: "?"),
-            "android" to Build.VERSION.RELEASE,
-            "sdk" to Build.VERSION.SDK_INT,
-            "fabricante" to Build.MANUFACTURER,
-            "modelo" to Build.MODEL,
-            "torDisponivel" to Transportes.torDisponivel(this),
-            "obfs4Disponivel" to Transportes.obfs4Disponivel(this),
-            "snowflakeDisponivel" to Transportes.snowflakeDisponivel(this),
-            "obfs4Embutidas" to Transportes.quantasObfs4Embutidas(this),
-            "origemEmbutidas" to Transportes.origemDasEmbutidas,
-        )
+        resultado.success(codigo)
     }
 
-    /** Avisos baratos de calcular, usados pelo Painel a cada atualização. */
-    private fun avisosRapidos(): Map<String, Any?> {
-        val dns = when (val s = Diagnostico.statusDnsPrivado(this)) {
-            is Diagnostico.StatusDns.Desligado -> "DESLIGADO"
-            is Diagnostico.StatusDns.Automatico -> "AUTOMATICO"
-            is Diagnostico.StatusDns.Fixo -> "FIXO:${s.servidor}"
+    private fun pedirNotificacao(jaPediu: Boolean): String = try {
+        val falta = Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        if (falta && (!jaPediu || shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS))) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), PEDIDO_NOTIFICACAO)
+        } else {
+            // Já recusado de vez (ou desligado no canal): só pela tela do sistema.
+            startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
+            )
         }
-        val notif = Build.VERSION.SDK_INT < 33 ||
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        return mapOf(
-            "bateriaIsenta" to Diagnostico.bateriaResolvida(this),
-            "dnsPrivado" to dns,
-            "notificacoes" to notif,
-            "vpnAutorizada" to (VpnService.prepare(this) == null),
-            "sempreAtiva" to Diagnostico.sempreAtivaLigada(this),
-        )
-    }
-
-    /** Executa a ação pedida pela tela. Retorna "OK", "FALHOU" ou um código específico. */
-    private fun executarAcao(acao: String): String {
-      return try {
-        val feito = when (acao) {
-            "ISENTAR_BATERIA" -> return liberarBateria()
-            "ABRIR_BATERIA_MARCA" -> return abrirTelaDeBateria()
-            "ABRIR_AUTOSTART" -> return abrirInicioAutomatico()
-            "ABRIR_DNS_PRIVADO" -> {
-                try {
-                    startActivity(Intent("android.settings.PRIVATE_DNS_SETTINGS"))
-                } catch (_: Exception) {
-                    startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS))
-                }
-                true
-            }
-            "PEDIR_NOTIFICACAO" -> {
-                val p = Preferencias(this)
-                val falta = Build.VERSION.SDK_INT >= 33 &&
-                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                val jaPediu = "_notificacao_pedida" in p.avisosDispensados
-                if (falta && (!jaPediu || shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS))) {
-                    p.avisosDispensados = p.avisosDispensados + "_notificacao_pedida"
-                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), PEDIDO_NOTIFICACAO)
-                } else {
-                    // Já recusado de vez (ou desligado no canal): só pela tela do sistema.
-                    startActivity(
-                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
-                    )
-                }
-                true
-            }
-            "PEDIR_NOTIFICACAO_INICIO" -> {
-                if (Build.VERSION.SDK_INT >= 33 &&
-                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), PEDIDO_NOTIFICACAO)
-                }
-                true
-            }
-            "ABRIR_VPN" -> {
-                startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
-                true
-            }
-            "ABRIR_APP_INFO" -> {
-                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-                true
-            }
-            "ABRIR_DESENVOLVEDOR" -> {
-                try {
-                    startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
-                } catch (_: Exception) {
-                    startActivity(Intent(Settings.ACTION_DEVICE_INFO_SETTINGS))
-                }
-                true
-            }
-            "ABRIR_PONTES" -> {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://bridges.torproject.org/options")))
-                true
-            }
-            else -> false
-        }
-        if (feito) "OK" else "FALHOU"
-      } catch (_: Exception) {
-        "FALHOU"
-      }
-    }
-
-    // ------------------------------------------------------------------
-    // Bateria: pergunta do Android → tela da marca → lista → informações do app
-    // ------------------------------------------------------------------
-
-    private fun existe(intent: Intent): Boolean = try {
-        intent.resolveActivity(packageManager) != null
+        "OK"
     } catch (_: Exception) {
-        false
+        "FALHOU"
+    }
+
+    private fun intentDeInformacoes() = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+
+    /** Mostra a instrução por ~7 s por cima da tela que abriu. */
+    private fun avisarLongo(texto: String) {
+        Toast.makeText(this, texto, Toast.LENGTH_LONG).show()
+        principal.postDelayed({ Toast.makeText(applicationContext, texto, Toast.LENGTH_LONG).show() }, 3600)
+    }
+
+    /**
+     * Abre a primeira tela que existir neste celular. Não pergunta antes ao
+     * Android se a tela existe (no Android 11+ a resposta pode vir errada
+     * para telas de outros apps): tenta abrir e, se não der, passa para a
+     * próxima.
+     */
+    private fun abrir(opcoes: List<Triple<String, Intent, String?>>): String {
+        for ((codigo, intent, instrucao) in opcoes) {
+            try {
+                startActivity(intent)
+                if (instrucao != null) avisarLongo(instrucao)
+                return codigo
+            } catch (_: Exception) {
+            }
+        }
+        return "NADA"
+    }
+
+    // ------------------------------------------------------------------
+    // Bateria: pergunta do Android → tela da marca → telas do Android
+    // ------------------------------------------------------------------
+
+    /** O pedido direto só existe se o manifesto declarar a permissão (pode sair na versão da Play Store). */
+    private val podePedirDireto: Boolean by lazy {
+        try {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS)
+                .requestedPermissions?.contains(Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) == true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     @SuppressLint("BatteryLife")
     private fun liberarBateria(): String {
         val isenta = Diagnostico.bateriaIsenta(this)
-        if (isenta && !Diagnostico.ehXiaomi()) return "JA_LIBERADO"
+        if (isenta) {
+            // O Android já liberou. Nas marcas com gerenciador próprio, falta a
+            // tela da marca; nas outras, não há mais nada a fazer.
+            return if (Fabricantes.temGerenciadorProprio()) abrirTelaDeBateria() else "JA_LIBERADO"
+        }
         // Na 1ª vez tenta a pergunta oficial do Android. Se a pessoa tocar de
-        // novo sem ter dado certo, vai direto para a tela da marca.
-        if (!isenta && tentativasBateria == 0) {
+        // novo sem ter dado certo, vai direto para as telas de bateria.
+        if (tentativasBateria == 0 && podePedirDireto) {
             tentativasBateria++
-            val pergunta = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
-            if (existe(pergunta)) {
-                try {
-                    inicioPedidoBateria = SystemClock.elapsedRealtime()
-                    pausouDesdeOPedido = false
-                    pedidoBateriaAberto = true
-                    @Suppress("DEPRECATION")
-                    startActivityForResult(pergunta, PEDIDO_BATERIA)
-                    // Vigia: na Xiaomi a pergunta pode simplesmente não aparecer,
-                    // sem devolver resposta nenhuma. Se em 1,6 s nada cobriu a
-                    // tela, a pergunta não apareceu.
-                    principal.postDelayed({
-                        if (pedidoBateriaAberto && !pausouDesdeOPedido) {
-                            pedidoBateriaAberto = false
-                            depoisDaPerguntaDeBateria(rapido = true)
-                        }
-                    }, 1600)
-                    return "PERGUNTA"
-                } catch (_: Exception) {
-                    pedidoBateriaAberto = false
-                }
+            try {
+                inicioPedidoBateria = SystemClock.elapsedRealtime()
+                pausouDesdeOPedido = false
+                pedidoBateriaAberto = true
+                @Suppress("DEPRECATION")
+                startActivityForResult(
+                    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")),
+                    PEDIDO_BATERIA,
+                )
+                // Vigia: em algumas marcas a pergunta simplesmente não aparece,
+                // sem devolver resposta. Se em 1,6 s nada cobriu a tela, ela
+                // não apareceu: segue para as telas de bateria.
+                principal.postDelayed({
+                    if (pedidoBateriaAberto && !pausouDesdeOPedido) {
+                        pedidoBateriaAberto = false
+                        depoisDaPerguntaDeBateria(rapido = true)
+                    }
+                }, 1600)
+                return "PERGUNTA"
+            } catch (_: Exception) {
+                pedidoBateriaAberto = false
             }
         }
         return abrirTelaDeBateria()
@@ -430,79 +367,44 @@ class MainActivity : FlutterActivity() {
      * Depois da pergunta do Android:
      *  - Xiaomi: abre SEMPRE a economia de bateria da própria Xiaomi, porque é
      *    ela que fecha os apps (a liberação do Android sozinha não basta);
-     *  - outras marcas: se a pergunta nem apareceu, abre a tela de bateria.
+     *  - outras marcas: se a pergunta nem apareceu, abre as telas de bateria.
      */
     private fun depoisDaPerguntaDeBateria(rapido: Boolean) {
         val isenta = Diagnostico.bateriaIsenta(this)
-        if (Diagnostico.ehXiaomi() || (!isenta && rapido)) abrirTelaDeBateria()
-    }
-
-    /** Mostra a instrução por ~7 s por cima da tela que abriu. */
-    private fun avisarLongo(texto: String) {
-        Toast.makeText(this, texto, Toast.LENGTH_LONG).show()
-        principal.postDelayed({ Toast.makeText(applicationContext, texto, Toast.LENGTH_LONG).show() }, 3600)
-    }
-
-    /** Abre a tela de "Início automático" (Xiaomi) ou o que houver mais perto disso. */
-    private fun abrirInicioAutomatico(): String {
-        val opcoes = mutableListOf<Triple<String, Intent, String>>()
-        if (Diagnostico.ehXiaomi()) {
-            opcoes += Triple(
-                "AUTOSTART",
-                Intent().setComponent(ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")),
-                "Procure Orbion VPN na lista e ligue a chave dele.",
-            )
-            opcoes += Triple(
-                "AUTOSTART",
-                Intent("miui.intent.action.APP_PERM_EDITOR")
-                    .setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
-                    .putExtra("extra_pkgname", packageName),
-                "Toque em \"Início automático\" e ligue.",
-            )
+        if (Fabricantes.marca() == Fabricantes.Marca.XIAOMI || (!isenta && rapido)) {
+            val codigo = abrirTelaDeBateria()
+            if (codigo == "NADA") avisarLongo("Abra Configurações (Settings) → Apps → Orbion VPN → Bateria (Battery) → \"Sem restrições\" (Unrestricted).")
         }
-        opcoes += Triple(
-            "APP_INFO",
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
-            "Procure \"Início automático\" (ou \"Inicialização automática\") e ligue.",
-        )
-        return abrirPrimeira(opcoes)
     }
 
-    private fun abrirPrimeira(opcoes: List<Triple<String, Intent, String>>): String {
-        for ((codigo, intent, instrucao) in opcoes) {
-            if (!existe(intent)) continue
-            try {
-                startActivity(intent)
-                avisarLongo(instrucao)
-                return codigo
-            } catch (_: Exception) {
-            }
-        }
-        return "NADA"
-    }
-
-    /** Abre a primeira tela de bateria que existir neste aparelho e explica o que tocar. */
+    /** Abre a tela de bateria da marca, ou a do Android, e explica o que tocar. */
     private fun abrirTelaDeBateria(): String {
-        val opcoes = mutableListOf<Triple<String, Intent, String>>()
-        if (Diagnostico.ehXiaomi()) {
-            opcoes += Triple(
-                "XIAOMI",
-                Intent().setComponent(ComponentName("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsConfigActivity"))
-                    .putExtra("package_name", packageName)
-                    .putExtra("package_label", "Orbion VPN"),
-                "Escolha \"Sem restrições\" e volte para o Orbion.",
-            )
+        val opcoes = mutableListOf<Triple<String, Intent, String?>>()
+        for (i in Fabricantes.telasDeBateria(this)) opcoes += Triple("MARCA", i, Fabricantes.instrucaoDaTelaDeBateria())
+        val infoApp = Triple<String, Intent, String?>(
+            "APP_INFO", intentDeInformacoes(),
+            "Toque em Bateria (Battery) e escolha \"Sem restrições\" (Unrestricted).",
+        )
+        val lista = Triple<String, Intent, String?>(
+            "LISTA", Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+            "Mude a lista para \"Todos os apps\" (All apps), toque em Orbion VPN e escolha \"Não otimizar\" (Don't optimize).",
+        )
+        // Android 12+: "Sem restrições" fica nas informações do app; antes disso, na lista.
+        if (Build.VERSION.SDK_INT >= 31) {
+            opcoes += infoApp
+            opcoes += lista
+        } else {
+            opcoes += lista
+            opcoes += infoApp
         }
-        opcoes += Triple(
-            "LISTA",
-            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
-            "Mude a lista para \"Todos os apps\", toque em Orbion VPN e escolha \"Não otimizar\".",
-        )
-        opcoes += Triple(
-            "APP_INFO",
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
-            "Toque em Bateria (ou Economia de bateria) e escolha \"Sem restrições\".",
-        )
-        return abrirPrimeira(opcoes)
+        return abrir(opcoes)
+    }
+
+    /** Abre a tela de "Início automático" da marca, ou o mais perto disso. */
+    private fun abrirInicioAutomatico(): String {
+        val opcoes = mutableListOf<Triple<String, Intent, String?>>()
+        for (i in Fabricantes.telasDeInicioAutomatico(this)) opcoes += Triple("AUTOSTART", i, Fabricantes.instrucaoDoInicioAutomatico())
+        opcoes += Triple("APP_INFO", intentDeInformacoes(), "Procure \"Início automático\" (Autostart) ou \"Inicialização automática\" e ligue.")
+        return abrir(opcoes)
     }
 }

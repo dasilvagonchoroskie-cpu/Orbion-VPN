@@ -1,9 +1,10 @@
 import 'package:flutter/services.dart';
 
-/// Ponte com o motor nativo (Kotlin) pelo canal "orbion/motor".
+/// Ponte com o motor nativo pelo canal "orbion/motor".
 ///
-/// O motor — Tor, túnel, filtro, Kill Switch — continua nativo, porque é ele
-/// que conversa com o Android (VpnService). Toda a interface é Flutter.
+/// O motor — Tor, túnel, filtro, Kill Switch, rota inteligente — roda num
+/// processo separado do Android (":vpn"). Se esta tela fechar ou travar, a
+/// VPN continua. Toda a interface é Flutter.
 class Motor {
   static const MethodChannel _canal = MethodChannel('orbion/motor');
 
@@ -17,99 +18,84 @@ class Motor {
     }
   }
 
-  static Future<StatusVpn> status() async {
-    final m = await _chamar<Map<dynamic, dynamic>>('status');
-    return StatusVpn.deMapa(m ?? const {});
-  }
+  static Map<dynamic, dynamic> _mapa(Object? x) => x is Map ? x : const {};
+  static List<dynamic> _lista(Object? x) => x is List ? x : const [];
+
+  static Future<StatusVpn> status() async =>
+      StatusVpn.deMapa(_mapa(await _chamar<Object>('status').timeout(const Duration(seconds: 6))));
 
   /// Pede a permissão de VPN (se preciso) e liga. Retorna false se a pessoa negou.
-  static Future<bool> conectar() async => (await _chamar<bool>('conectar')) ?? false;
-  static Future<void> desconectar() => _chamar('desconectar');
+  static Future<bool> conectar({String origem = 'tela'}) async =>
+      (await _chamar<bool>('conectar', {'origem': origem})) ?? false;
+  static Future<void> desconectar() => _chamar('desligar');
   static Future<bool> reconectar() async => (await _chamar<bool>('reconectar')) ?? false;
   static Future<void> novaIdentidade() => _chamar('novaIdentidade');
   static Future<void> limparAvisos() => _chamar('limparAvisos');
 
-  static Future<Config> lerConfig() async {
-    final m = await _chamar<Map<dynamic, dynamic>>('lerConfig');
-    return Config.deMapa(m ?? const {});
-  }
+  static Future<Config> lerConfig() async => Config.deMapa(_mapa(await _chamar<Object>('lerConfig')));
 
-  static Future<Config> salvarConfig(Map<String, Object?> mudancas) async {
-    final m = await _chamar<Map<dynamic, dynamic>>('salvarConfig', mudancas);
-    return Config.deMapa(m ?? const {});
-  }
+  static Future<Config> salvarConfig(Map<String, Object?> mudancas) async =>
+      Config.deMapa(_mapa(await _chamar<Object>('salvarConfig', mudancas)));
 
-  static Future<List<AppInstalado>> listarApps({bool incluirSistema = false}) async {
-    final l = await _chamar<List<dynamic>>('listarApps', {'incluirSistema': incluirSistema});
-    return (l ?? const [])
-        .map((e) => AppInstalado.deMapa(e as Map<dynamic, dynamic>))
-        .toList();
-  }
+  static Future<List<AppRota>> listarApps({bool incluirSistema = false}) async =>
+      _lista(await _chamar<Object>('listarApps', {'incluirSistema': incluirSistema}))
+          .map((e) => AppRota.deMapa(_mapa(e)))
+          .toList();
 
   static Future<Map<String, Uint8List>> icones(List<String> pacotes) async {
-    final m = await _chamar<Map<dynamic, dynamic>>('icones', {'pacotes': pacotes});
+    final m = _mapa(await _chamar<Object>('icones', {'pacotes': pacotes}));
     final saida = <String, Uint8List>{};
-    (m ?? const {}).forEach((k, v) {
+    m.forEach((k, v) {
       if (v is Uint8List) saida[k as String] = v;
     });
     return saida;
   }
 
-  static Future<Registros> registros({int max = 200}) async {
-    final m = await _chamar<Map<dynamic, dynamic>>('registros', {'max': max});
-    return Registros.deMapa(m ?? const {});
-  }
+  static Future<Registros> registros({int max = 200}) async =>
+      Registros.deMapa(_mapa(await _chamar<Object>('registros', {'max': max})));
 
   static Future<LogTecnico> logTecnico({int max = 300}) async {
-    final m = await _chamar<Map<dynamic, dynamic>>('logTecnico', {'max': max});
-    List<String> lista(Object? x) => (x as List<dynamic>? ?? const []).map((e) => '$e').toList();
-    return LogTecnico(tor: lista(m?['tor']), tunel: lista(m?['tunel']));
+    final m = _mapa(await _chamar<Object>('logTecnico', {'max': max}));
+    List<String> lista(Object? x) => _lista(x).map((e) => '$e').toList();
+    return LogTecnico(tor: lista(m['tor']), tunel: lista(m['tunel']));
   }
 
-  static Future<List<Suspeita>> suspeitas() async {
-    final l = await _chamar<List<dynamic>>('suspeitas');
-    return (l ?? const []).map((e) => Suspeita.deMapa(e as Map<dynamic, dynamic>)).toList();
+  static Future<List<ItemDiagnostico>> diagnostico() async =>
+      _lista(await _chamar<Object>('diagnostico')).map((e) => ItemDiagnostico.deMapa(_mapa(e))).toList();
+
+  static Future<InfoMotor> infoMotor() async => InfoMotor.deMapa(_mapa(await _chamar<Object>('infoMotor')));
+
+  static Future<AvisosRapidos> avisosRapidos() async =>
+      AvisosRapidos.deMapa(_mapa(await _chamar<Object>('avisosRapidos').timeout(const Duration(seconds: 10))));
+
+  static Future<ResumoRotas> rotas() async => ResumoRotas.deMapa(_mapa(await _chamar<Object>('rotas')));
+
+  /// Manda um app pela rede Tor (true) ou por fora dela (false).
+  static Future<String> rotaDeApp(String pacote, bool pelaTor) async {
+    final m = _mapa(await _chamar<Object>('rotaDeApp', {'pacote': pacote, 'pelaTor': pelaTor}));
+    return '${m['rota'] ?? 'TOR'}';
   }
 
-  static Future<List<AppProblematico>> appsProblematicos() async {
-    final l = await _chamar<List<dynamic>>('appsProblematicos');
-    return (l ?? const [])
-        .map((e) => AppProblematico.deMapa(e as Map<dynamic, dynamic>))
-        .toList();
-  }
+  /// rota: 'direto' (sempre por fora), 'tor' (sempre pelo Tor) ou 'padrao'.
+  static Future<Config> rotaDeDominio(String dominio, String rota) async =>
+      Config.deMapa(_mapa(await _chamar<Object>('rotaDeDominio', {'dominio': dominio, 'rota': rota})));
 
-  static Future<List<ItemDiagnostico>> diagnostico() async {
-    final l = await _chamar<List<dynamic>>('diagnostico');
-    return (l ?? const [])
-        .map((e) => ItemDiagnostico.deMapa(e as Map<dynamic, dynamic>))
-        .toList();
-  }
+  static Future<List<Evento>> eventos({int max = 150}) async =>
+      _lista(await _chamar<Object>('eventos', {'max': max})).map((e) => Evento.deMapa(_mapa(e))).toList();
 
-  static Future<InfoMotor> infoMotor() async {
-    final m = await _chamar<Map<dynamic, dynamic>>('infoMotor');
-    return InfoMotor.deMapa(m ?? const {});
-  }
+  static Future<List<Fechamento>> fechamentos() async =>
+      _lista(await _chamar<Object>('fechamentos')).map((e) => Fechamento.deMapa(_mapa(e))).toList();
 
-  static Future<AvisosRapidos> avisosRapidos() async {
-    final m = await _chamar<Map<dynamic, dynamic>>('avisosRapidos');
-    return AvisosRapidos.deMapa(m ?? const {});
-  }
-
-  /// Abre a tela do Android pedida. Devolve um código (OK, FALHOU, XIAOMI...).
+  /// Abre a tela do Android pedida. Devolve um código (OK, FALHOU, MARCA...).
   static Future<String> executarAcao(String acao) async =>
       (await _chamar<String>('executarAcao', {'acao': acao})) ?? 'FALHOU';
 
   /// A pessoa confirma um ajuste que o app não consegue conferir sozinho.
-  static Future<Config> confirmar(String id) async {
-    final m = await _chamar<Map<dynamic, dynamic>>('confirmar', {'id': id});
-    return Config.deMapa(m ?? const {});
-  }
+  static Future<Config> confirmar(String id) async => Config.deMapa(_mapa(await _chamar<Object>('confirmar', {'id': id})));
 
   /// Volta a mostrar os avisos que a pessoa marcou como feitos.
-  static Future<Config> desfazerConfirmacoes() async {
-    final m = await _chamar<Map<dynamic, dynamic>>('desfazerConfirmacoes');
-    return Config.deMapa(m ?? const {});
-  }
+  static Future<Config> desfazerConfirmacoes() async =>
+      Config.deMapa(_mapa(await _chamar<Object>('desfazerConfirmacoes')));
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +122,7 @@ EstadoVpn _estado(Object? s) {
 int _int(Object? v) => v is num ? v.toInt() : 0;
 bool _bool(Object? v, [bool padrao = false]) => v is bool ? v : padrao;
 String? _str(Object? v) => v is String && v.isNotEmpty ? v : null;
+List<String> _textos(Object? v) => (v is List ? v : const []).map((e) => '$e').toList();
 
 class StatusVpn {
   final EstadoVpn estado;
@@ -149,11 +136,17 @@ class StatusVpn {
   final int velocidadeRecebimento;
   final String? contornoDeBloqueio;
   final String? avisoDeIdentidade;
+  final String? religamento;
   final String caminhoEmUso;
   final List<String> appsForaNaSessao;
+  final bool aplicandoRotas;
+  final bool servicoAtivo;
+  final bool estavaLigada;
   final bool vpnSempreAtiva;
   final bool bloqueioSemVpn;
   final int quedasDoTor;
+  final int desviadosAuto;
+  final int pausados;
 
   const StatusVpn({
     this.estado = EstadoVpn.desconectado,
@@ -167,11 +160,17 @@ class StatusVpn {
     this.velocidadeRecebimento = 0,
     this.contornoDeBloqueio,
     this.avisoDeIdentidade,
+    this.religamento,
     this.caminhoEmUso = 'DIRETO',
     this.appsForaNaSessao = const [],
+    this.aplicandoRotas = false,
+    this.servicoAtivo = false,
+    this.estavaLigada = false,
     this.vpnSempreAtiva = false,
     this.bloqueioSemVpn = false,
     this.quedasDoTor = 0,
+    this.desviadosAuto = 0,
+    this.pausados = 0,
   });
 
   factory StatusVpn.deMapa(Map<dynamic, dynamic> m) => StatusVpn(
@@ -186,25 +185,38 @@ class StatusVpn {
         velocidadeRecebimento: _int(m['velocidadeRecebimento']),
         contornoDeBloqueio: _str(m['contornoDeBloqueio']),
         avisoDeIdentidade: _str(m['avisoDeIdentidade']),
+        religamento: _str(m['religamento']),
         caminhoEmUso: (m['caminhoEmUso'] as String?) ?? 'DIRETO',
-        appsForaNaSessao: ((m['appsForaNaSessao'] as List<dynamic>?) ?? const []).map((e) => '$e').toList(),
+        appsForaNaSessao: _textos(m['appsForaNaSessao']),
+        aplicandoRotas: _bool(m['aplicandoRotas']),
+        servicoAtivo: _bool(m['servicoAtivo']),
+        estavaLigada: _bool(m['estavaLigada']),
         vpnSempreAtiva: _bool(m['vpnSempreAtiva']),
         bloqueioSemVpn: _bool(m['bloqueioSemVpn']),
         quedasDoTor: _int(m['quedasDoTor']),
+        desviadosAuto: _int(m['desviadosAuto']),
+        pausados: _int(m['pausados']),
       );
 
   bool get ligada =>
       estado == EstadoVpn.conectado || estado == EstadoVpn.conectando || estado == EstadoVpn.bloqueado;
+
+  /// A pessoa deixou a VPN ligada, mas o Android derrubou o motor.
+  bool get derrubadaPeloSistema => estavaLigada && !servicoAtivo && estado == EstadoVpn.desconectado;
 }
 
 class Config {
   final bool killSwitch;
   final bool bloquearRastreadores;
-  final bool desvioDireto;
   final bool capturarIPv6;
-  final bool escolherApps;
-  final Set<String> appsForaDoTunel;
   final int intervaloRotacaoSegundos;
+  final bool rotaInteligente;
+  final Set<String> categoriasDesligadas;
+  final bool desvioAutomatico;
+  final Set<String> appsForaDoTunel;
+  final Set<String> appsSempreNoTor;
+  final List<String> dominiosDiretos;
+  final List<String> dominiosSempreTor;
   final bool conectarAoAbrir;
   final bool conectarNoBoot;
   final bool usarBridges;
@@ -215,11 +227,15 @@ class Config {
   const Config({
     this.killSwitch = true,
     this.bloquearRastreadores = true,
-    this.desvioDireto = true,
     this.capturarIPv6 = true,
-    this.escolherApps = false,
-    this.appsForaDoTunel = const {},
     this.intervaloRotacaoSegundos = 600,
+    this.rotaInteligente = true,
+    this.categoriasDesligadas = const {},
+    this.desvioAutomatico = true,
+    this.appsForaDoTunel = const {},
+    this.appsSempreNoTor = const {},
+    this.dominiosDiretos = const [],
+    this.dominiosSempreTor = const [],
     this.conectarAoAbrir = false,
     this.conectarNoBoot = false,
     this.usarBridges = false,
@@ -231,43 +247,71 @@ class Config {
   factory Config.deMapa(Map<dynamic, dynamic> m) => Config(
         killSwitch: _bool(m['killSwitch'], true),
         bloquearRastreadores: _bool(m['bloquearRastreadores'], true),
-        desvioDireto: _bool(m['desvioDireto'], true),
         capturarIPv6: _bool(m['capturarIPv6'], true),
-        escolherApps: _bool(m['escolherApps']),
-        appsForaDoTunel: ((m['appsForaDoTunel'] as List<dynamic>?) ?? const []).map((e) => '$e').toSet(),
         intervaloRotacaoSegundos: m['intervaloRotacaoSegundos'] is num ? _int(m['intervaloRotacaoSegundos']) : 600,
+        rotaInteligente: _bool(m['rotaInteligente'], true),
+        categoriasDesligadas: _textos(m['categoriasDesligadas']).toSet(),
+        desvioAutomatico: _bool(m['desvioAutomatico'], true),
+        appsForaDoTunel: _textos(m['appsForaDoTunel']).toSet(),
+        appsSempreNoTor: _textos(m['appsSempreNoTor']).toSet(),
+        dominiosDiretos: _textos(m['dominiosDiretos']),
+        dominiosSempreTor: _textos(m['dominiosSempreTor']),
         conectarAoAbrir: _bool(m['conectarAoAbrir']),
         conectarNoBoot: _bool(m['conectarNoBoot']),
         usarBridges: _bool(m['usarBridges']),
         bridges: (m['bridges'] as String?) ?? '',
         contornoAutomatico: _bool(m['contornoAutomatico'], true),
-        avisosDispensados: ((m['avisosDispensados'] as List<dynamic>?) ?? const []).map((e) => '$e').toSet(),
+        avisosDispensados: _textos(m['avisosDispensados']).toSet(),
       );
 }
 
-class AppInstalado {
+/// Rota de um aplicativo: pela rede Tor ou por fora dela.
+enum RotaApp { tor, foraAutomatico, foraManual, torManual }
+
+RotaApp rotaAppDeTexto(Object? s) => switch (s) {
+      'FORA_AUTO' => RotaApp.foraAutomatico,
+      'FORA_MANUAL' => RotaApp.foraManual,
+      'TOR_MANUAL' => RotaApp.torManual,
+      _ => RotaApp.tor,
+    };
+
+class AppRota {
   final String pacote;
   final String nome;
   final bool sistema;
-  const AppInstalado(this.pacote, this.nome, this.sistema);
-  factory AppInstalado.deMapa(Map<dynamic, dynamic> m) =>
-      AppInstalado('${m['pacote']}', '${m['nome']}', _bool(m['sistema']));
+  final RotaApp rota;
+  final String? categoria;
+  const AppRota(this.pacote, this.nome, this.sistema, this.rota, this.categoria);
+  factory AppRota.deMapa(Map<dynamic, dynamic> m) => AppRota(
+        '${m['pacote']}',
+        '${m['nome']}',
+        _bool(m['sistema']),
+        rotaAppDeTexto(m['rota']),
+        _str(m['categoria']),
+      );
+
+  bool get pelaTor => rota == RotaApp.tor || rota == RotaApp.torManual;
+
+  AppRota comRota(RotaApp r) => AppRota(pacote, nome, sistema, r, categoria);
 }
 
-enum Destino { tor, direto, bloqueado }
+enum Destino { tor, direto, bloqueado, pausado }
 
 class Registro {
   final String dominio;
   final Destino destino;
   final int quando;
-  const Registro(this.dominio, this.destino, this.quando);
+  final String? motivo;
+  final String? base;
+  const Registro(this.dominio, this.destino, this.quando, this.motivo, this.base);
   factory Registro.deMapa(Map<dynamic, dynamic> m) {
     final d = switch (m['destino']) {
       'DIRETO' => Destino.direto,
       'BLOQUEADO' => Destino.bloqueado,
+      'PAUSADO' => Destino.pausado,
       _ => Destino.tor,
     };
-    return Registro('${m['dominio']}', d, _int(m['quando']));
+    return Registro('${m['dominio']}', d, _int(m['quando']), _str(m['motivo']), _str(m['base']));
   }
 }
 
@@ -275,12 +319,14 @@ class Registros {
   final int bloqueados;
   final int pelaRedeTor;
   final int diretos;
+  final int pausados;
   final int ipv6Recusados;
   final List<Registro> lista;
   const Registros({
     this.bloqueados = 0,
     this.pelaRedeTor = 0,
     this.diretos = 0,
+    this.pausados = 0,
     this.ipv6Recusados = 0,
     this.lista = const [],
   });
@@ -290,6 +336,7 @@ class Registros {
       bloqueados: _int(c['bloqueados']),
       pelaRedeTor: _int(c['pelaRedeTor']),
       diretos: _int(c['diretos']),
+      pausados: _int(c['pausados']),
       ipv6Recusados: _int(c['ipv6Recusados']),
       lista: ((m['registros'] as List<dynamic>?) ?? const [])
           .map((e) => Registro.deMapa(e as Map<dynamic, dynamic>))
@@ -304,30 +351,93 @@ class LogTecnico {
   const LogTecnico({this.tor = const [], this.tunel = const []});
 }
 
-class Suspeita {
-  final String servidor;
-  final int tentativas;
-  final String? servico;
-  final String? motivo;
-  final String? explicacao;
-  const Suspeita(this.servidor, this.tentativas, this.servico, this.motivo, this.explicacao);
-  factory Suspeita.deMapa(Map<dynamic, dynamic> m) => Suspeita(
-        '${m['servidor']}',
-        _int(m['tentativas']),
-        _str(m['servico']),
-        _str(m['motivo']),
-        _str(m['explicacao']),
+class CategoriaRota {
+  final String id;
+  final String titulo;
+  final String resumo;
+  final String porque;
+  final bool ligada;
+  final List<String> apps;
+  final int dominios;
+  const CategoriaRota(this.id, this.titulo, this.resumo, this.porque, this.ligada, this.apps, this.dominios);
+  factory CategoriaRota.deMapa(Map<dynamic, dynamic> m) => CategoriaRota(
+        '${m['id']}',
+        '${m['titulo']}',
+        '${m['resumo'] ?? ''}',
+        '${m['porque'] ?? ''}',
+        _bool(m['ligada'], true),
+        _textos(m['apps']),
+        _int(m['dominios']),
       );
 }
 
-class AppProblematico {
-  final String pacote;
-  final String nome;
-  final String motivo;
+class DesvioAutomatico {
+  final String dominio;
+  final int quando;
+  final String? categoria;
+  const DesvioAutomatico(this.dominio, this.quando, this.categoria);
+  factory DesvioAutomatico.deMapa(Map<dynamic, dynamic> m) =>
+      DesvioAutomatico('${m['dominio']}', _int(m['quando']), _str(m['categoria']));
+}
+
+class DestinoPausado {
+  final String destino;
+  final int falhas;
+  final int segundos;
+  const DestinoPausado(this.destino, this.falhas, this.segundos);
+  factory DestinoPausado.deMapa(Map<dynamic, dynamic> m) =>
+      DestinoPausado('${m['destino']}', _int(m['falhas']), _int(m['segundos']));
+}
+
+class ResumoRotas {
+  final List<CategoriaRota> categorias;
+  final List<DesvioAutomatico> desviadosAuto;
+  final List<DestinoPausado> pausados;
+  final List<String> dominiosDiretos;
+  final List<String> dominiosSempreTor;
+  final int appsFora;
+  const ResumoRotas({
+    this.categorias = const [],
+    this.desviadosAuto = const [],
+    this.pausados = const [],
+    this.dominiosDiretos = const [],
+    this.dominiosSempreTor = const [],
+    this.appsFora = 0,
+  });
+  factory ResumoRotas.deMapa(Map<dynamic, dynamic> m) => ResumoRotas(
+        categorias: (m['categorias'] as List<dynamic>? ?? const []).map((e) => CategoriaRota.deMapa(e as Map)).toList(),
+        desviadosAuto:
+            (m['desviadosAuto'] as List<dynamic>? ?? const []).map((e) => DesvioAutomatico.deMapa(e as Map)).toList(),
+        pausados: (m['pausados'] as List<dynamic>? ?? const []).map((e) => DestinoPausado.deMapa(e as Map)).toList(),
+        dominiosDiretos: _textos(m['dominiosDiretos']),
+        dominiosSempreTor: _textos(m['dominiosSempreTor']),
+        appsFora: _int(m['appsFora']),
+      );
+}
+
+class Evento {
+  final int quando;
+  final String texto;
+  const Evento(this.quando, this.texto);
+  factory Evento.deMapa(Map<dynamic, dynamic> m) => Evento(_int(m['quando']), '${m['texto']}');
+}
+
+/// Por que o Android fechou o Orbion (Android 11+).
+class Fechamento {
+  final String processo; // 'vpn' ou 'tela'
+  final int quando;
   final String explicacao;
-  const AppProblematico(this.pacote, this.nome, this.motivo, this.explicacao);
-  factory AppProblematico.deMapa(Map<dynamic, dynamic> m) =>
-      AppProblematico('${m['pacote']}', '${m['nome']}', '${m['motivo']}', '${m['explicacao']}');
+  final String descricao;
+  final String? rastro;
+  const Fechamento(this.processo, this.quando, this.explicacao, this.descricao, this.rastro);
+  factory Fechamento.deMapa(Map<dynamic, dynamic> m) => Fechamento(
+        '${m['processo']}',
+        _int(m['quando']),
+        '${m['explicacao'] ?? ''}',
+        '${m['descricao'] ?? ''}',
+        _str(m['rastro']),
+      );
+  bool get daVpn => processo == 'vpn';
 }
 
 enum Gravidade { ok, dica, atencao, grave }
@@ -385,6 +495,7 @@ class InfoMotor {
   final String android;
   final String fabricante;
   final String modelo;
+  final String marca;
   final bool torDisponivel;
   final bool obfs4Disponivel;
   final bool snowflakeDisponivel;
@@ -397,6 +508,7 @@ class InfoMotor {
     this.android = '',
     this.fabricante = '',
     this.modelo = '',
+    this.marca = '',
     this.torDisponivel = false,
     this.obfs4Disponivel = false,
     this.snowflakeDisponivel = false,
@@ -410,6 +522,7 @@ class InfoMotor {
         android: '${m['android'] ?? ''}',
         fabricante: '${m['fabricante'] ?? ''}',
         modelo: '${m['modelo'] ?? ''}',
+        marca: '${m['marca'] ?? ''}',
         torDisponivel: _bool(m['torDisponivel']),
         obfs4Disponivel: _bool(m['obfs4Disponivel']),
         snowflakeDisponivel: _bool(m['snowflakeDisponivel']),
@@ -423,6 +536,7 @@ class AvisosRapidos {
   final String dnsPrivado; // DESLIGADO, AUTOMATICO ou FIXO:servidor
   final bool notificacoes;
   final bool vpnAutorizada;
+  final String marca;
 
   /// "VPN sempre ativa": true/false, ou null quando não dá para saber.
   final bool? sempreAtiva;
@@ -431,6 +545,7 @@ class AvisosRapidos {
     this.dnsPrivado = 'DESLIGADO',
     this.notificacoes = true,
     this.vpnAutorizada = true,
+    this.marca = '',
     this.sempreAtiva,
   });
   factory AvisosRapidos.deMapa(Map<dynamic, dynamic> m) => AvisosRapidos(
@@ -438,6 +553,7 @@ class AvisosRapidos {
         dnsPrivado: '${m['dnsPrivado'] ?? 'DESLIGADO'}',
         notificacoes: _bool(m['notificacoes'], true),
         vpnAutorizada: _bool(m['vpnAutorizada'], true),
+        marca: '${m['marca'] ?? ''}',
         sempreAtiva: m['sempreAtiva'] is bool ? m['sempreAtiva'] as bool : null,
       );
 }

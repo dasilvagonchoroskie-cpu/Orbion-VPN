@@ -183,11 +183,13 @@ class _TelaPainelState extends State<TelaPainel> with SingleTickerProviderStateM
         final desde = s.conectadoDesde > 0
             ? formatarDuracao(DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(s.conectadoDesde)))
             : '—';
-        return 'Conectado há $desde  •  ${nomeDoCaminho(s.caminhoEmUso)}\nTráfego TCP e DNS pela rede Tor';
+        final fora = s.appsForaNaSessao.length;
+        return 'Conectado há $desde  •  ${nomeDoCaminho(s.caminhoEmUso)}\n'
+            '${fora > 0 ? 'Pela rede Tor  •  $fora app(s) por fora (rota inteligente)' : 'Tráfego TCP e DNS pela rede Tor'}';
       case EstadoVpn.conectando:
         return s.mensagem.isEmpty ? 'Iniciando...' : s.mensagem;
       case EstadoVpn.bloqueado:
-        return 'A rede Tor caiu. Reconectando sozinho...';
+        return 'A rede Tor caiu. Reconectando sozinho...\nO que vai por fora (banco, WhatsApp...) continua funcionando.';
       case EstadoVpn.erro:
         return 'Toque em tentar de novo. O motivo está logo abaixo.';
       case EstadoVpn.desconectado:
@@ -270,15 +272,59 @@ class _TelaPainelState extends State<TelaPainel> with SingleTickerProviderStateM
     final lista = <Widget>[];
     final a = c.avisos;
 
+    final avisoDaTela = c.avisoDaTela;
+    if (avisoDaTela != null) {
+      if (s.estado == EstadoVpn.conectado || s.estado == EstadoVpn.erro) {
+        // O motor já explica (religamento) ou mostra a falha.
+        WidgetsBinding.instance.addPostFrameCallback((_) => c.limparAvisoDaTela());
+      } else {
+        lista.add(CartaoAviso(
+          icone: Icons.restart_alt,
+          cor: Cores.ciano,
+          titulo: 'Religando a VPN',
+          texto: avisoDaTela,
+        ));
+      }
+    }
+    if (s.religamento != null && s.estado == EstadoVpn.conectado) {
+      lista.add(CartaoAviso(
+        icone: Icons.restart_alt,
+        cor: Cores.ciano,
+        titulo: 'A VPN foi religada sozinha',
+        texto: '${s.religamento}\n\nPara o sistema do celular não fechar mais o Orbion, faça os ajustes de bateria e da marca do seu celular.',
+        botao: 'Ver ajustes do celular',
+        aoTocarBotao: () => widget.irPara(3),
+        botaoSecundario: 'Entendi',
+        aoTocarSecundario: () => Motor.limparAvisos(),
+      ));
+    }
     if (s.estado == EstadoVpn.bloqueado) {
       lista.add(CartaoAviso(
         icone: Icons.gpp_maybe,
         cor: Cores.amarelo,
         titulo: '🔒 Kill Switch protegeu você',
-        texto: 'O tráfego que dependia da rede Tor está bloqueado de propósito. Sem isso, ele voltaria a sair sem proteção e você não teria como perceber.\n\n'
+        texto: 'O tráfego que depende da rede Tor está bloqueado de propósito. Sem isso, ele voltaria a sair sem proteção e você não teria como perceber. '
+            'O que vai por fora pela rota inteligente (banco, WhatsApp...) continua funcionando.\n\n'
             'O Orbion está tentando reconectar sozinho.${s.erro != null ? '\n\nMotivo: ${s.erro}' : ''}',
         botao: 'Desligar a VPN e liberar a internet',
         aoTocarBotao: () => c.desconectar(),
+      ));
+    }
+    if (s.estado == EstadoVpn.conectado && c.config.rotaInteligente) {
+      final fora = s.appsForaNaSessao.length;
+      lista.add(Card(
+        child: ListTile(
+          leading: const Icon(Icons.alt_route, color: Cores.ciano),
+          title: const Text('Rota inteligente', style: TextStyle(fontWeight: FontWeight.w700)),
+          subtitle: Text(
+            '$fora app(s) por fora do Tor (bancos, governo, mensageiros...)'
+            '${s.desviadosAuto > 0 ? '  •  ${s.desviadosAuto} site(s) desviado(s) sozinho(s)' : ''}'
+            '${s.aplicandoRotas ? '\nAplicando rotas novas...' : ''}',
+            style: const TextStyle(color: Cores.textoFraco, fontSize: 12.5),
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => widget.irPara(1),
+        ),
       ));
     }
     if (s.estado == EstadoVpn.erro && s.erro != null) {
@@ -317,8 +363,8 @@ class _TelaPainelState extends State<TelaPainel> with SingleTickerProviderStateM
         icone: Icons.battery_alert,
         cor: Cores.vermelho,
         titulo: '⚠ Ação necessária: economia de bateria',
-        texto: 'O seu aparelho está autorizado a encerrar o Orbion para poupar bateria. Quando isso acontece a VPN cai e o celular pode ficar sem internet, mostrando o Wi-Fi com um ponto de exclamação.\n\n'
-            'Toque abaixo e escolha "Permitir" para o Orbion continuar funcionando em segundo plano.',
+        texto: 'O seu ${a.marca.isEmpty ? 'celular' : a.marca} está autorizado a encerrar o Orbion para poupar bateria. Quando isso acontece a VPN cai até ser religada.\n\n'
+            'Toque abaixo. Se aparecer uma pergunta, toque em "Permitir" (Allow); se abrir uma tela de bateria, escolha "Sem restrições" (Unrestricted).',
         botao: 'Corrigir agora',
         aoTocarBotao: () => _executar('ISENTAR_BATERIA'),
         botaoSecundario: 'Não avisar',
@@ -338,15 +384,14 @@ class _TelaPainelState extends State<TelaPainel> with SingleTickerProviderStateM
         aoTocarSecundario: () => c.dispensarAviso('painel:sempreativa'),
       ));
     }
-    if (a.dnsPrivado != 'DESLIGADO' && !c.dispensado('painel:dnsprivado:${a.dnsPrivado}')) {
-      final fixo = a.dnsPrivado.startsWith('FIXO:');
+    // Só o modo FIXO atrapalha de verdade; o automático vira uma dica em Config.
+    if (a.dnsPrivado.startsWith('FIXO:') && !c.dispensado('painel:dnsprivado:${a.dnsPrivado}')) {
       lista.add(CartaoAviso(
         icone: Icons.dns,
-        cor: fixo ? Cores.vermelho : Cores.amarelo,
-        titulo: fixo ? 'DNS Privado impede o Orbion de funcionar' : 'DNS Privado deixa a navegação mais lenta',
-        texto: fixo
-            ? 'O DNS Privado está fixo em "${a.dnsPrivado.substring(5)}". Com ele ligado, Instagram, YouTube e outros param de abrir, e o bloqueio de rastreadores deixa de funcionar.\n\nDesligue em Configurações → Rede e Internet → DNS Privado. Com o Orbion conectado você não perde nada: o túnel resolve os nomes por dentro.'
-            : 'O DNS Privado está no modo "Automático": a primeira página demora uns 15 segundos a mais para abrir.\n\nPara corrigir: Configurações → Rede e Internet → DNS Privado → "Desativado".',
+        cor: Cores.vermelho,
+        titulo: 'DNS Privado impede o Orbion de funcionar',
+        texto: 'O DNS Privado está fixo em "${a.dnsPrivado.substring(5)}". Com ele ligado, a rota inteligente não reconhece os sites (bancos e redes sociais param de abrir pelo navegador) e o bloqueio de rastreadores deixa de funcionar.\n\n'
+            'Desligue em Configurações (Settings) → Rede e Internet (Network & internet) → DNS Privado (Private DNS) → "Desativado" (Off). Com o Orbion conectado você não perde nada: o túnel resolve os nomes por dentro.',
         botao: 'Corrigir agora',
         aoTocarBotao: () => _executar('ABRIR_DNS_PRIVADO'),
         botaoSecundario: 'Não avisar',

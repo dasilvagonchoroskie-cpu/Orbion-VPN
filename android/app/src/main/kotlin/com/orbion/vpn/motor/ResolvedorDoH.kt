@@ -3,6 +3,7 @@ package com.orbion.vpn.motor
 import android.util.Log
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.URL
 import java.net.URLEncoder
@@ -11,8 +12,12 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Resolve nomes por DNS criptografado (HTTPS), só para os endereços que saem
- * DIRETO (desvio de serviços que recusam o Tor). Assim o provedor de
- * internet não vê a lista de sites nem nesse caso.
+ * DIRETO (rota inteligente). Assim o provedor de internet não vê nem a
+ * consulta desses nomes.
+ *
+ * Se a rede bloquear o DNS criptografado (algumas redes de empresa bloqueiam),
+ * usa o DNS normal do aparelho como último recurso — o site vai por fora do
+ * Tor de qualquer forma, e a conexão em si continua cifrada (HTTPS).
  *
  * O próprio Orbion fica fora do túnel, então estas consultas saem pela rede
  * normal do aparelho.
@@ -21,6 +26,7 @@ object ResolvedorDoH {
 
     private const val TAG = "OrbionDoH"
     private const val VALIDADE_MS = 300_000L
+    private const val VALIDADE_FALHA_MS = 30_000L
 
     private val servidores = listOf(
         "https://1.1.1.1/dns-query?type=A&name=",
@@ -28,24 +34,33 @@ object ResolvedorDoH {
         "https://8.8.8.8/resolve?type=A&name=",
     )
 
-    private data class Entrada(val enderecos: List<InetAddress>, val expiraEm: Long)
+    private val regexIPv4 = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
+
+    private class Entrada(val enderecos: List<InetAddress>, val expiraEm: Long)
 
     private val cache = ConcurrentHashMap<String, Entrada>()
 
     fun resolver(nome: String): List<InetAddress> {
         val chave = nome.lowercase(Locale.ROOT).trimEnd('.')
+        val agora = System.currentTimeMillis()
         cache[chave]?.let { e ->
-            if (System.currentTimeMillis() < e.expiraEm) return e.enderecos
+            if (agora < e.expiraEm) return e.enderecos
             cache.remove(chave)
         }
         for (servidor in servidores) {
             val r = consultar(servidor, chave)
             if (r.isNotEmpty()) {
-                cache[chave] = Entrada(r, System.currentTimeMillis() + VALIDADE_MS)
+                cache[chave] = Entrada(r, agora + VALIDADE_MS)
                 return r
             }
         }
-        return emptyList()
+        val doAparelho = try {
+            InetAddress.getAllByName(chave).filterIsInstance<Inet4Address>()
+        } catch (_: Exception) {
+            emptyList()
+        }
+        cache[chave] = Entrada(doAparelho, agora + if (doAparelho.isEmpty()) VALIDADE_FALHA_MS else VALIDADE_MS)
+        return doAparelho
     }
 
     private fun consultar(servidor: String, nome: String): List<InetAddress> {
@@ -54,8 +69,8 @@ object ResolvedorDoH {
             con = URL(servidor + URLEncoder.encode(nome, "UTF-8")).openConnection() as HttpURLConnection
             con.requestMethod = "GET"
             con.setRequestProperty("Accept", "application/dns-json")
-            con.connectTimeout = 5000
-            con.readTimeout = 5000
+            con.connectTimeout = 4000
+            con.readTimeout = 4000
             if (con.responseCode != 200) return emptyList()
             val corpo = con.inputStream.bufferedReader().use { it.readText() }
             val respostas = JSONObject(corpo).optJSONArray("Answer") ?: return emptyList()
@@ -66,7 +81,7 @@ object ResolvedorDoH {
                 val ip = o.optString("data")
                 // Só aceita IPv4 literal: nunca deixa o InetAddress sair
                 // fazendo consulta de DNS comum por conta própria.
-                if (ip.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$"))) {
+                if (ip.matches(regexIPv4)) {
                     try {
                         lista.add(InetAddress.getByName(ip))
                     } catch (_: Exception) {

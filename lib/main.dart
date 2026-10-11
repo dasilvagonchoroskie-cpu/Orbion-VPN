@@ -67,7 +67,7 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final telas = [
       TelaPainel(c: _c, irPara: _irPara),
-      TelaApps(c: _c),
+      TelaApps(c: _c, irPara: _irPara),
       TelaRegistros(c: _c),
       TelaConfig(c: _c, irPara: _irPara),
     ];

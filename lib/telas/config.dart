@@ -19,26 +19,34 @@ class _TelaConfigState extends State<TelaConfig> {
   List<ItemDiagnostico>? _diagnostico;
   bool _verificando = false;
   InfoMotor _info = const InfoMotor();
+  ResumoRotas? _rotas;
   final TextEditingController _bridges = TextEditingController();
+  final TextEditingController _novoSite = TextEditingController();
   bool _bridgesCarregadas = false;
   double? _rotacaoArrastando;
   int _ultimoRetorno = 0;
   bool _mostrarEmOrdem = false;
+  final Set<String> _categoriasAbertas = {};
 
   ControladorOrbion get c => widget.c;
+
+  /// Só estas mudanças precisam reconectar; o resto vale na hora.
+  static const _exigemReconexao = {'usarBridges', 'bridges', 'contornoAutomatico'};
 
   @override
   void initState() {
     super.initState();
     _verificar();
+    _carregarRotas();
     Motor.infoMotor().then((i) {
       if (mounted) setState(() => _info = i);
-    });
+    }).catchError((_) {});
   }
 
   @override
   void dispose() {
     _bridges.dispose();
+    _novoSite.dispose();
     super.dispose();
   }
 
@@ -53,12 +61,27 @@ class _TelaConfigState extends State<TelaConfig> {
     }
   }
 
+  Future<void> _carregarRotas() async {
+    try {
+      final r = await Motor.rotas();
+      if (mounted) setState(() => _rotas = r);
+    } catch (_) {}
+  }
+
   Future<void> _salvar(Map<String, Object?> m) async {
     await c.salvar(m);
     if (!mounted) return;
-    if (c.status.ligada) {
+    if (!c.status.ligada) return;
+    if (m.keys.any(_exigemReconexao.contains)) {
       mostrarAviso(context, 'Vale a partir da próxima conexão.', acao: 'Reconectar agora', aoTocar: () => c.reconectar());
+    } else {
+      mostrarAviso(context, 'Pronto. Já está valendo.');
     }
+  }
+
+  Future<void> _salvarRotas(Map<String, Object?> m) async {
+    await _salvar(m);
+    await _carregarRotas();
   }
 
   @override
@@ -67,12 +90,13 @@ class _TelaConfigState extends State<TelaConfig> {
       listenable: c,
       builder: (context, _) {
         final cfg = c.config;
-        // Voltou de uma tela do Android (bateria, VPN, Xiaomi...): confere de
+        // Voltou de uma tela do Android (bateria, VPN, marca...): confere de
         // novo, para o que já foi resolvido sumir sozinho.
         if (c.retornos != _ultimoRetorno) {
           _ultimoRetorno = c.retornos;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted && !_verificando) _verificar();
+            if (mounted) _carregarRotas();
           });
         }
         if (!_bridgesCarregadas && c.carregado) {
@@ -84,9 +108,9 @@ class _TelaConfigState extends State<TelaConfig> {
           children: [
             const Text('CONFIGURAÇÕES', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 2)),
             ..._secaoDiagnostico(),
+            ..._secaoRotaInteligente(cfg),
             ..._secaoCriptografia(cfg),
             ..._secaoSeguranca(cfg),
-            ..._secaoCompatibilidade(cfg),
             ..._secaoAutomatico(cfg),
             ..._secaoTor(cfg),
             ..._secaoDns(),
@@ -97,6 +121,8 @@ class _TelaConfigState extends State<TelaConfig> {
     );
   }
 
+  // ------------------------------------------------------------------
+  // Diagnóstico
   // ------------------------------------------------------------------
 
   List<Widget> _secaoDiagnostico() {
@@ -135,6 +161,10 @@ class _TelaConfigState extends State<TelaConfig> {
   Future<void> _executar(String acao) async {
     if (acao == 'ABRIR_APPS') {
       widget.irPara(1);
+      return;
+    }
+    if (acao == 'ABRIR_REGISTROS') {
+      widget.irPara(2);
       return;
     }
     final msg = await c.acao(acao);
@@ -227,6 +257,272 @@ class _TelaConfigState extends State<TelaConfig> {
     );
   }
 
+  // ------------------------------------------------------------------
+  // Rota inteligente
+  // ------------------------------------------------------------------
+
+  List<Widget> _secaoRotaInteligente(Config cfg) {
+    final r = _rotas;
+    return [
+      const TituloDeSecao('🧠 ROTA INTELIGENTE'),
+      LinhaChave(
+        icone: Icons.alt_route,
+        titulo: 'Rota inteligente',
+        subtitulo: cfg.rotaInteligente
+            ? 'Ligada: quem recusa o Tor vai por fora, sozinho'
+            : 'Desligada: tudo pelo Tor, menos o que você escolher',
+        valor: cfg.rotaInteligente,
+        aoMudar: (v) => _salvarRotas({'rotaInteligente': v}),
+        explicacao: 'Bancos, gov.br, WhatsApp e redes sociais recusam conexões da rede Tor — e neles você já entra com seu nome, '
+            'então o Tor não esconderia quem você é. Com a rota inteligente, esses apps e sites vão por fora do Tor, e todo o resto '
+            'continua pelo Tor. Abaixo você escolhe quais categorias.',
+      ),
+      if (cfg.rotaInteligente) ...[
+        const SizedBox(height: 8),
+        if (r == null)
+          const Card(child: Padding(padding: EdgeInsets.all(20), child: Center(child: Text('Carregando categorias...'))))
+        else
+          for (final cat in r.categorias) _linhaCategoria(cat, cfg),
+        const SizedBox(height: 8),
+        LinhaChave(
+          icone: Icons.auto_fix_high,
+          titulo: 'Desviar sozinho quem recusa o Tor',
+          subtitulo: cfg.desvioAutomatico ? 'Ligado: sites que falham pelo Tor vão por fora' : 'Desligado: só as categorias e a sua lista',
+          valor: cfg.desvioAutomatico,
+          aoMudar: (v) => _salvarRotas({'desvioAutomatico': v}),
+          explicacao: 'Se um endereço falhar 3 vezes seguidas pela rede Tor, o Orbion para de insistir por um tempo que vai dobrando '
+              '(30 s, 1 min, 2 min... até 10 min) — isso poupa bateria e evita que um app teimoso sobrecarregue o Tor. Com esta chave ligada, '
+              'um SITE nessa situação vai por fora do Tor (só com HTTPS) até a VPN ser desligada. Você vê e desfaz logo abaixo.',
+        ),
+        if (r != null && r.desviadosAuto.isNotEmpty) _cartaoDesviadosAuto(r),
+        if (r != null && r.pausados.isNotEmpty) _cartaoPausados(r),
+      ],
+      const SizedBox(height: 8),
+      _cartaoSites(cfg),
+      const SizedBox(height: 8),
+      const LinhaInfo(
+        icone: Icons.verified_user,
+        corDoIcone: Cores.verde,
+        titulo: 'O que continua protegido',
+        subtitulo: 'Mesmo no que vai por fora do Tor',
+        explicacao: '• Apps e sites desviados continuam com a criptografia deles (HTTPS; de ponta a ponta nos mensageiros).\n'
+            '• Endereço sem criptografia (http://) nunca sai por fora: vai pelo Tor.\n'
+            '• Os nomes dos sites desviados são consultados por DNS criptografado.\n'
+            '• Rastreadores continuam bloqueados também nos sites desviados.\n'
+            '• O Orbion não esconde do Android nem dos apps que é uma VPN: a separação é feita às claras, pelo próprio Android.',
+      ),
+      const SizedBox(height: 8),
+      const LinhaInfo(
+        icone: Icons.lan,
+        titulo: 'IPv6 tratado automaticamente',
+        subtitulo: 'Quem passa pelo túnel usa IPv4. Quem está fora usa IPv6 à vontade.',
+        explicacao: 'O tráfego IPv6 é capturado pelo túnel — então não vaza — e recusado na hora, o que faz o aplicativo tentar por IPv4 em milissegundos, sem você perceber.',
+      ),
+    ];
+  }
+
+  Widget _linhaCategoria(CategoriaRota cat, Config cfg) {
+    final aberta = _categoriasAbertas.contains(cat.id);
+    final apps = cat.apps;
+    final textoApps = apps.isEmpty
+        ? 'Nenhum app desta categoria neste celular (os sites continuam valendo).'
+        : 'Neste celular: ${apps.take(5).join(', ')}${apps.length > 5 ? ' e mais ${apps.length - 5}' : ''}.';
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => setState(() => aberta ? _categoriasAbertas.remove(cat.id) : _categoriasAbertas.add(cat.id)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(cat.titulo, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5)),
+                        const SizedBox(height: 2),
+                        Text(cat.resumo, style: const TextStyle(color: Cores.textoFraco, fontSize: 12.5)),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: cat.ligada,
+                    onChanged: (v) {
+                      final desligadas = {...cfg.categoriasDesligadas};
+                      if (v) {
+                        desligadas.remove(cat.id);
+                      } else {
+                        desligadas.add(cat.id);
+                      }
+                      _salvarRotas({'categoriasDesligadas': desligadas.toList()});
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(textoApps, style: TextStyle(color: cat.ligada ? Cores.amarelo : Cores.textoFraco, fontSize: 12)),
+              if (aberta) ...[
+                const SizedBox(height: 6),
+                Text(
+                  '${cat.porque}\n\n${cat.ligada ? 'Ligada: esses apps e ${cat.dominios} endereços de site vão por fora do Tor.' : 'Desligada: tudo isso passa pela rede Tor.'}',
+                  style: const TextStyle(color: Cores.textoFraco, fontSize: 12.5, height: 1.4),
+                ),
+              ] else
+                const Text('Toque para ver o motivo', style: TextStyle(color: Cores.textoFraco, fontSize: 11)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _cartaoDesviadosAuto(ResumoRotas r) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(children: [
+              Icon(Icons.auto_fix_high, color: Cores.amarelo),
+              SizedBox(width: 12),
+              Expanded(child: Text('Desviados sozinhos nesta conexão', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
+            ]),
+            const SizedBox(height: 6),
+            const Text(
+              'Estes sites recusaram a rede Tor e estão indo por fora até você desligar a VPN. Fixe os que você usa sempre, ou mande de volta para o Tor.',
+              style: TextStyle(color: Cores.textoFraco, fontSize: 12.5, height: 1.4),
+            ),
+            for (final d in r.desviadosAuto.take(12))
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        d.categoria == null ? d.dominio : '${d.dominio}  (${d.categoria})',
+                        style: const TextStyle(fontSize: 13.5),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        await c.rotaDeDominio(d.dominio, 'direto');
+                        await _carregarRotas();
+                      },
+                      child: const Text('Fixar'),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        await c.rotaDeDominio(d.dominio, 'tor');
+                        await _carregarRotas();
+                      },
+                      child: const Text('Pelo Tor'),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _cartaoPausados(ResumoRotas r) {
+    final linhas = r.pausados.take(6).map((p) => '• ${p.destino} — ${p.falhas} falha(s), nova tentativa em ${p.segundos}s').join('\n');
+    return CartaoAviso(
+      icone: Icons.pause_circle_outline,
+      cor: Cores.ciano,
+      titulo: 'Em pausa agora (${r.pausados.length})',
+      texto: 'Endereços que falharam seguidas vezes pela rede Tor. O Orbion espera antes de tentar de novo, para não gastar bateria nem sobrecarregar o Tor:\n\n$linhas',
+    );
+  }
+
+  Widget _cartaoSites(Config cfg) {
+    Future<void> adicionar(String rota) async {
+      final d = normalizarDominio(_novoSite.text);
+      if (d == null) {
+        mostrarAviso(context, 'Digite só o endereço do site. Exemplo: meubanco.com.br');
+        return;
+      }
+      await c.rotaDeDominio(d, rota);
+      _novoSite.clear();
+      await _carregarRotas();
+      if (mounted) mostrarAviso(context, rota == 'direto' ? '$d vai sempre por fora do Tor.' : '$d vai sempre pela rede Tor.');
+    }
+
+    Widget chip(String d, Color cor) => InputChip(
+          label: Text(d, style: TextStyle(color: cor, fontSize: 12.5)),
+          side: BorderSide(color: cor.withValues(alpha: 0.6)),
+          backgroundColor: cor.withValues(alpha: 0.08),
+          onDeleted: () async {
+            await c.rotaDeDominio(d, 'padrao');
+            await _carregarRotas();
+          },
+        );
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(children: [
+              Icon(Icons.language, color: Cores.ciano),
+              SizedBox(width: 12),
+              Expanded(child: Text('Sites por sua conta', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
+            ]),
+            const SizedBox(height: 6),
+            const Text(
+              'Um site não abre pelo Tor? Mande ele sempre por fora. Quer um site sempre pelo Tor, mesmo sendo de uma categoria desviada? Também dá. '
+              'Vale para o navegador e para os apps que passam pelo Tor. Dica: em Registros, toque num endereço para fazer isso direto.',
+              style: TextStyle(color: Cores.textoFraco, fontSize: 12.5, height: 1.4),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _novoSite,
+              keyboardType: TextInputType.url,
+              decoration: InputDecoration(
+                hintText: 'Ex.: meubanco.com.br',
+                filled: true,
+                fillColor: Colors.black,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 10,
+              runSpacing: 6,
+              children: [
+                FilledButton(onPressed: () => adicionar('direto'), child: const Text('Sempre por fora')),
+                OutlinedButton(onPressed: () => adicionar('tor'), child: const Text('Sempre pelo Tor')),
+              ],
+            ),
+            if (cfg.dominiosDiretos.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text('Sempre por fora do Tor:', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+              Wrap(spacing: 6, runSpacing: 6, children: [for (final d in cfg.dominiosDiretos) chip(d, Cores.amarelo)]),
+            ],
+            if (cfg.dominiosSempreTor.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text('Sempre pela rede Tor:', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+              Wrap(spacing: 6, runSpacing: 6, children: [for (final d in cfg.dominiosSempreTor) chip(d, Cores.verde)]),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // Demais seções
+  // ------------------------------------------------------------------
+
   List<Widget> _secaoCriptografia(Config cfg) {
     final minutos = (_rotacaoArrastando ?? cfg.intervaloRotacaoSegundos / 60).round().clamp(1, 60).toInt();
     return [
@@ -303,37 +599,26 @@ class _TelaConfigState extends State<TelaConfig> {
         LinhaChave(
           icone: Icons.power_settings_new,
           titulo: 'Kill Switch',
-          subtitulo: cfg.killSwitch ? 'Ativo: bloqueia tudo se o Tor cair' : 'Desligado: o tráfego sai sem proteção se o Tor cair',
+          subtitulo: cfg.killSwitch ? 'Ativo: bloqueia o que depende do Tor se ele cair' : 'Desligado: o tráfego sai sem proteção se o Tor cair',
           valor: cfg.killSwitch,
           aoMudar: (v) => _salvar({'killSwitch': v}),
-          explicacao: 'Com ele ligado, o túnel também segura o tráfego enquanto o Tor ainda está conectando — nada sai sem proteção nem no começo.',
-        ),
-      ];
-
-  List<Widget> _secaoCompatibilidade(Config cfg) => [
-        const TituloDeSecao('🌍 COMPATIBILIDADE'),
-        LinhaChave(
-          icone: Icons.alt_route,
-          titulo: 'Desvio para serviços que barram o Tor',
-          subtitulo: cfg.desvioDireto
-              ? 'Ativo: apps bloqueados voltam a funcionar'
-              : 'Desligado: Instagram, YouTube e outros não vão funcionar',
-          valor: cfg.desvioDireto,
-          aoMudar: (v) => _salvar({'desvioDireto': v}),
-          explicacao: 'Alguns serviços recusam qualquer conexão vinda da rede Tor — Instagram, YouTube, TikTok, bancos. Com isto ligado, SOMENTE os endereços deles saem por fora do túnel. Todo o resto continua passando pelo Tor.\n\n'
-              'O que sai por fora expõe o seu IP real para aquele serviço. A consulta de nomes continua criptografada, então o seu provedor não fica sabendo.',
-        ),
-        const SizedBox(height: 8),
-        const LinhaInfo(
-          icone: Icons.lan,
-          titulo: 'IPv6 tratado automaticamente',
-          subtitulo: 'Quem passa pelo túnel usa IPv4. Quem está fora usa IPv6 à vontade.',
-          explicacao: 'O tráfego IPv6 é capturado pelo túnel — então não vaza — e recusado na hora, o que faz o aplicativo tentar por IPv4 em milissegundos, sem você perceber.',
+          explicacao: 'Com ele ligado, o túnel também segura o tráfego enquanto o Tor ainda está conectando — nada sai sem proteção nem no começo. '
+              'O que vai por fora pela rota inteligente (banco, WhatsApp...) continua funcionando nesse meio-tempo.',
         ),
       ];
 
   List<Widget> _secaoAutomatico(Config cfg) => [
         const TituloDeSecao('⚡ AUTOMÁTICO'),
+        const LinhaInfo(
+          icone: Icons.restart_alt,
+          corDoIcone: Cores.verde,
+          titulo: 'Religa sozinha',
+          subtitulo: 'Se o sistema do celular fechar a VPN, ela volta',
+          fim: Selo('SEMPRE ATIVO', Cores.verde),
+          explicacao: 'A VPN roda separada da tela: fechar o app ou limpar os apps recentes não desliga a proteção. Se o sistema do celular derrubar a VPN, '
+              'ela é religada pelo próprio Android, por um vigia que confere a cada 15 minutos e quando você abre o app. O motivo de cada queda fica em Registros → Eventos.',
+        ),
+        const SizedBox(height: 8),
         LinhaChave(
           icone: Icons.touch_app,
           titulo: 'Conectar ao abrir o app',
@@ -345,19 +630,20 @@ class _TelaConfigState extends State<TelaConfig> {
         LinhaChave(
           icone: Icons.phone_android,
           titulo: 'Conectar ao ligar o celular',
-          subtitulo: cfg.conectarNoBoot ? 'Protege desde a inicialização do aparelho' : 'Só conecta quando você abrir o app',
+          subtitulo: cfg.conectarNoBoot ? 'Liga sempre que o celular ligar' : 'Só volta sozinha se estava ligada',
           valor: cfg.conectarNoBoot,
           aoMudar: (v) => c.salvar({'conectarNoBoot': v}),
-          explicacao: 'Só funciona depois que você autorizar a VPN ao menos uma vez. Para proteção total, use também "VPN sempre ativa" abaixo.',
+          explicacao: 'Se a VPN estava ligada quando o celular desligou, ela volta sozinha de qualquer forma. Esta chave faz ela ligar mesmo se estava desligada. '
+              'Só funciona depois que você autorizar a VPN ao menos uma vez.',
         ),
         const SizedBox(height: 8),
         LinhaInfo(
           icone: Icons.all_inclusive,
-          titulo: 'VPN sempre ativa',
+          titulo: 'VPN sempre ativa (Always-on VPN)',
           subtitulo: c.avisos.sempreAtiva == true ? 'Ligada: o Android religa o Orbion sozinho' : 'Configurada nas opções de VPN do Android',
           corDoIcone: c.avisos.sempreAtiva == true ? Cores.verde : Cores.ciano,
           fim: TextButton(onPressed: () => Motor.executarAcao('ABRIR_VPN'), child: const Text('Abrir')),
-          explicacao: 'Na tela do Android, toque na engrenagem ao lado de Orbion VPN e ligue "VPN sempre ativa". Se quiser que NADA saia sem a VPN, ligue também "Bloquear conexões sem VPN".',
+          explicacao: 'Na tela do Android, toque na engrenagem ao lado de Orbion VPN e ligue "VPN sempre ativa" (Always-on VPN). Se quiser que NADA saia sem a VPN, ligue também "Bloquear conexões sem VPN" (Block connections without VPN).',
         ),
       ];
 
@@ -478,8 +764,10 @@ class _TelaConfigState extends State<TelaConfig> {
           titulo: 'Resolução de nomes pelo Tor',
           subtitulo: 'Nenhuma consulta de DNS sai do aparelho em claro',
           fim: Selo('SEMPRE ATIVO', Cores.verde),
-          explicacao: 'Quando um aplicativo pergunta o endereço de um site, o Orbion responde na hora com um número interno, sem consultar ninguém. Quem descobre o endereço de verdade é a rede Tor, por dentro.\n\n'
-              'Por isso não existe escolha de servidor de DNS aqui: escolher um servidor externo seria justamente entregar a lista dos sites que você visita.',
+          explicacao: 'Quando um aplicativo pergunta o endereço de um site, o Orbion responde na hora com um número interno, sem consultar ninguém. '
+              'O NOME do site segue pela rede Tor, e quem descobre o endereço de verdade é a saída do Tor — o mesmo princípio do SOCKS4a.\n\n'
+              'Por isso não existe escolha de servidor de DNS aqui: escolher um servidor externo seria justamente entregar a lista dos sites que você visita. '
+              'Só os sites desviados pela rota inteligente são consultados fora do Tor, e por DNS criptografado.',
         ),
       ];
 
@@ -493,10 +781,11 @@ class _TelaConfigState extends State<TelaConfig> {
               children: [
                 Text('⚡ Orbion VPN v${_info.versaoApp}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
                 const SizedBox(height: 4),
-                const Text('Rede Tor + Kill Switch + DNS pelo Tor', style: TextStyle(color: Cores.textoFraco)),
+                const Text('Rede Tor + rota inteligente + Kill Switch', style: TextStyle(color: Cores.textoFraco)),
                 const Divider(height: 22),
                 _linhaSobre('Motor Tor', _info.versaoTor.isEmpty ? '...' : _info.versaoTor),
                 _linhaSobre('Aparelho', '${_info.fabricante} ${_info.modelo}'),
+                if (_info.marca.isNotEmpty) _linhaSobre('Ajustes para', _info.marca),
                 _linhaSobre('Android', _info.android),
                 _linhaSobre('Arquitetura', _info.abi),
                 const SizedBox(height: 10),

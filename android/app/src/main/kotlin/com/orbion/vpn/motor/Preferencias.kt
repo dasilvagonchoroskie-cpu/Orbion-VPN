@@ -1,96 +1,182 @@
 package com.orbion.vpn.motor
 
+import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
+import android.util.Log
 
 /**
  * Configurações do Orbion, guardadas no próprio aparelho.
  *
- * Fica do lado nativo de propósito: o serviço da VPN precisa ler estes valores
- * mesmo com a tela fechada (no boot, na reconexão do Kill Switch, quando o
- * Android religa a "VPN sempre ativa"). A tela em Flutter lê e grava pelo
- * canal "orbion/motor".
+ * DONO ÚNICO: só o processo da VPN (":vpn") abre este arquivo. A tela, que
+ * roda em outro processo, lê e grava pela ponte (Ponte.kt). O Android não
+ * sincroniza este tipo de arquivo entre processos — se os dois gravassem,
+ * um apagaria as mudanças do outro.
+ *
+ * Só grava quando o valor muda: escrita em disco à toa, várias vezes por
+ * minuto, é uma das causas conhecidas de "O app não está respondendo".
  */
 class Preferencias(context: Context) {
 
     private val sp: SharedPreferences =
         context.applicationContext.getSharedPreferences(ARQUIVO, Context.MODE_PRIVATE)
 
+    init {
+        conferirProcesso()
+        migrar()
+    }
+
+    // ------------------------------------------------------------------
+    // Leitura e escrita sem gravação repetida
+    // ------------------------------------------------------------------
+
+    private fun bool(chave: String, padrao: Boolean) = sp.getBoolean(chave, padrao)
+
+    private fun gravar(chave: String, v: Boolean) {
+        if (!sp.contains(chave) || sp.getBoolean(chave, !v) != v) sp.edit().putBoolean(chave, v).apply()
+    }
+
+    private fun gravar(chave: String, v: Int) {
+        if (!sp.contains(chave) || sp.getInt(chave, v - 1) != v) sp.edit().putInt(chave, v).apply()
+    }
+
+    private fun gravar(chave: String, v: Long) {
+        if (!sp.contains(chave) || sp.getLong(chave, v - 1) != v) sp.edit().putLong(chave, v).apply()
+    }
+
+    private fun gravar(chave: String, v: String) {
+        if (sp.getString(chave, null) != v) sp.edit().putString(chave, v).apply()
+    }
+
+    private fun conjunto(chave: String): Set<String> = sp.getStringSet(chave, emptySet())?.toSet() ?: emptySet()
+
+    private fun gravar(chave: String, v: Set<String>) {
+        if (conjunto(chave) != v || !sp.contains(chave)) sp.edit().putStringSet(chave, HashSet(v)).apply()
+    }
+
+    // ------------------------------------------------------------------
+    // Proteção
+    // ------------------------------------------------------------------
+
     var killSwitch: Boolean
-        get() = sp.getBoolean(KILL_SWITCH, true)
-        set(v) = sp.edit().putBoolean(KILL_SWITCH, v).apply()
+        get() = bool(KILL_SWITCH, true)
+        set(v) = gravar(KILL_SWITCH, v)
 
     var bloquearRastreadores: Boolean
-        get() = sp.getBoolean(BLOQUEAR_RASTREADORES, true)
-        set(v) = sp.edit().putBoolean(BLOQUEAR_RASTREADORES, v).apply()
-
-    var desvioDireto: Boolean
-        get() = sp.getBoolean(DESVIO_DIRETO, true)
-        set(v) = sp.edit().putBoolean(DESVIO_DIRETO, v).apply()
+        get() = bool(BLOQUEAR_RASTREADORES, true)
+        set(v) = gravar(BLOQUEAR_RASTREADORES, v)
 
     var capturarIPv6: Boolean
-        get() = sp.getBoolean(CAPTURAR_IPV6, true)
-        set(v) = sp.edit().putBoolean(CAPTURAR_IPV6, v).apply()
-
-    var escolherApps: Boolean
-        get() = sp.getBoolean(SPLIT_TUNNEL, false)
-        set(v) = sp.edit().putBoolean(SPLIT_TUNNEL, v).apply()
-
-    var appsForaDoTunel: Set<String>
-        get() = sp.getStringSet(EXCLUDED_APPS, emptySet())?.toSet() ?: emptySet()
-        set(v) = sp.edit().putStringSet(EXCLUDED_APPS, HashSet(v)).apply()
+        get() = bool(CAPTURAR_IPV6, true)
+        set(v) = gravar(CAPTURAR_IPV6, v)
 
     var intervaloRotacaoSegundos: Int
         get() = sp.getInt(INTERVALO_ROTACAO, 600).coerceIn(60, 3600)
-        set(v) = sp.edit().putInt(INTERVALO_ROTACAO, v.coerceIn(60, 3600)).apply()
+        set(v) = gravar(INTERVALO_ROTACAO, v.coerceIn(60, 3600))
+
+    // ------------------------------------------------------------------
+    // Rota inteligente
+    // ------------------------------------------------------------------
+
+    /** Chave mestra: apps e sites que recusam o Tor vão por fora sozinhos. */
+    var rotaInteligente: Boolean
+        get() = bool(ROTA_INTELIGENTE, true)
+        set(v) = gravar(ROTA_INTELIGENTE, v)
+
+    /** Categorias que a pessoa desligou (as novas já nascem ligadas). */
+    var categoriasDesligadas: Set<String>
+        get() = conjunto(CATEGORIAS_DESLIGADAS)
+        set(v) = gravar(CATEGORIAS_DESLIGADAS, v)
+
+    /** Desviar sozinho os sites que falham repetidamente pela rede Tor. */
+    var desvioAutomatico: Boolean
+        get() = bool(DESVIO_AUTOMATICO, true)
+        set(v) = gravar(DESVIO_AUTOMATICO, v)
+
+    /** Apps que a pessoa tirou do túnel. */
+    var appsForaDoTunel: Set<String>
+        get() = conjunto(EXCLUDED_APPS)
+        set(v) = gravar(EXCLUDED_APPS, v)
+
+    /** Apps que a pessoa quer SEMPRE pelo Tor, mesmo sendo de uma categoria desviada. */
+    var appsSempreNoTor: Set<String>
+        get() = conjunto(APPS_SEMPRE_TOR)
+        set(v) = gravar(APPS_SEMPRE_TOR, v)
+
+    var dominiosDiretos: Set<String>
+        get() = conjunto(DOMINIOS_DIRETOS)
+        set(v) = gravar(DOMINIOS_DIRETOS, v)
+
+    var dominiosSempreTor: Set<String>
+        get() = conjunto(DOMINIOS_TOR)
+        set(v) = gravar(DOMINIOS_TOR, v)
+
+    // ------------------------------------------------------------------
+    // Automático e rede Tor
+    // ------------------------------------------------------------------
 
     var conectarAoAbrir: Boolean
-        get() = sp.getBoolean(CONECTAR_AO_ABRIR, false)
-        set(v) = sp.edit().putBoolean(CONECTAR_AO_ABRIR, v).apply()
+        get() = bool(CONECTAR_AO_ABRIR, false)
+        set(v) = gravar(CONECTAR_AO_ABRIR, v)
 
     var conectarNoBoot: Boolean
-        get() = sp.getBoolean(CONECTAR_NO_BOOT, false)
-        set(v) = sp.edit().putBoolean(CONECTAR_NO_BOOT, v).apply()
+        get() = bool(CONECTAR_NO_BOOT, false)
+        set(v) = gravar(CONECTAR_NO_BOOT, v)
 
     var usarBridges: Boolean
-        get() = sp.getBoolean(USAR_BRIDGES, false)
-        set(v) = sp.edit().putBoolean(USAR_BRIDGES, v).apply()
+        get() = bool(USAR_BRIDGES, false)
+        set(v) = gravar(USAR_BRIDGES, v)
 
     var bridges: String
         get() = sp.getString(BRIDGES, "") ?: ""
-        set(v) = sp.edit().putString(BRIDGES, v).apply()
+        set(v) = gravar(BRIDGES, v)
 
     /** Contorno automático (escada: direto → snowflake → obfs4). */
     var contornoAutomatico: Boolean
-        get() = sp.getBoolean(CONTORNO_AUTOMATICO, true)
-        set(v) = sp.edit().putBoolean(CONTORNO_AUTOMATICO, v).apply()
+        get() = bool(CONTORNO_AUTOMATICO, true)
+        set(v) = gravar(CONTORNO_AUTOMATICO, v)
+
+    // ------------------------------------------------------------------
+    // Estado
+    // ------------------------------------------------------------------
 
     /** Avisos que a pessoa pediu para não mostrar mais. */
     var avisosDispensados: Set<String>
-        get() = sp.getStringSet(AVISOS_DISPENSADOS, emptySet())?.toSet() ?: emptySet()
-        set(v) = sp.edit().putStringSet(AVISOS_DISPENSADOS, HashSet(v)).apply()
+        get() = conjunto(AVISOS_DISPENSADOS)
+        set(v) = gravar(AVISOS_DISPENSADOS, v)
 
-    /**
-     * "VPN sempre ativa" como o serviço viu da última vez que rodou:
-     * -1 = nunca verificado, 0 = desligada, 1 = ligada.
-     */
+    /** "VPN sempre ativa" como o serviço viu: -1 = nunca, 0 = desligada, 1 = ligada. */
     var sempreAtivaConhecida: Int
         get() = sp.getInt(SEMPRE_ATIVA_CONHECIDA, -1)
-        set(v) = sp.edit().putInt(SEMPRE_ATIVA_CONHECIDA, v).apply()
+        set(v) = gravar(SEMPRE_ATIVA_CONHECIDA, v)
 
-    /** A VPN estava ligada quando o app foi fechado? Usado na reabertura. */
+    /**
+     * A pessoa quer a VPN ligada? Vira true ao ligar, false quando a pessoa
+     * desliga ou quando a conexão falha de vez. Se o Android derrubar o
+     * processo, fica true — e é assim que o Orbion sabe que precisa religar.
+     */
     var estavaLigada: Boolean
-        get() = sp.getBoolean(ESTAVA_LIGADA, false)
-        set(v) = sp.edit().putBoolean(ESTAVA_LIGADA, v).apply()
+        get() = bool(ESTAVA_LIGADA, false)
+        set(v) = gravar(ESTAVA_LIGADA, v)
+
+    /** Último fechamento do Android já anotado no diário. */
+    var ultimoFechamentoVisto: Long
+        get() = sp.getLong(ULTIMO_FECHAMENTO, 0L)
+        set(v) = gravar(ULTIMO_FECHAMENTO, v)
 
     fun comoMapa(): Map<String, Any> = mapOf(
         "killSwitch" to killSwitch,
         "bloquearRastreadores" to bloquearRastreadores,
-        "desvioDireto" to desvioDireto,
         "capturarIPv6" to capturarIPv6,
-        "escolherApps" to escolherApps,
-        "appsForaDoTunel" to appsForaDoTunel.toList(),
         "intervaloRotacaoSegundos" to intervaloRotacaoSegundos,
+        "rotaInteligente" to rotaInteligente,
+        "categoriasDesligadas" to categoriasDesligadas.toList(),
+        "desvioAutomatico" to desvioAutomatico,
+        "appsForaDoTunel" to appsForaDoTunel.toList(),
+        "appsSempreNoTor" to appsSempreNoTor.toList(),
+        "dominiosDiretos" to dominiosDiretos.sorted(),
+        "dominiosSempreTor" to dominiosSempreTor.sorted(),
         "conectarAoAbrir" to conectarAoAbrir,
         "conectarNoBoot" to conectarNoBoot,
         "usarBridges" to usarBridges,
@@ -99,41 +185,113 @@ class Preferencias(context: Context) {
         "avisosDispensados" to avisosDispensados.toList(),
     )
 
-    /** Grava só as chaves conhecidas que vierem no mapa. */
-    fun aplicar(mapa: Map<*, *>) {
+    private fun textos(valor: Any?): Set<String>? = (valor as? List<*>)?.filterIsInstance<String>()?.toSet()
+
+    private fun dominios(valor: Any?): Set<String>? =
+        textos(valor)?.mapNotNull { RotaInteligente.normalizarDominio(it) }?.toSet()
+
+    /** Grava só as chaves conhecidas. Devolve as que mudaram de verdade. */
+    fun aplicar(mapa: Map<*, *>): Set<String> {
+        val antes = comoMapa()
         for ((chave, valor) in mapa) {
             when (chave) {
                 "killSwitch" -> (valor as? Boolean)?.let { killSwitch = it }
                 "bloquearRastreadores" -> (valor as? Boolean)?.let { bloquearRastreadores = it }
-                "desvioDireto" -> (valor as? Boolean)?.let { desvioDireto = it }
                 "capturarIPv6" -> (valor as? Boolean)?.let { capturarIPv6 = it }
-                "escolherApps" -> (valor as? Boolean)?.let { escolherApps = it }
-                "appsForaDoTunel" -> (valor as? List<*>)?.let { lista ->
-                    appsForaDoTunel = lista.filterIsInstance<String>().toSet()
-                }
-                "intervaloRotacaoSegundos" -> (valor as? Number)?.let {
-                    intervaloRotacaoSegundos = it.toInt()
-                }
+                "intervaloRotacaoSegundos" -> (valor as? Number)?.let { intervaloRotacaoSegundos = it.toInt() }
+                "rotaInteligente" -> (valor as? Boolean)?.let { rotaInteligente = it }
+                "categoriasDesligadas" -> textos(valor)?.let { categoriasDesligadas = it }
+                "desvioAutomatico" -> (valor as? Boolean)?.let { desvioAutomatico = it }
+                "appsForaDoTunel" -> textos(valor)?.let { appsForaDoTunel = it }
+                "appsSempreNoTor" -> textos(valor)?.let { appsSempreNoTor = it }
+                "dominiosDiretos" -> dominios(valor)?.let { dominiosDiretos = it }
+                "dominiosSempreTor" -> dominios(valor)?.let { dominiosSempreTor = it }
                 "conectarAoAbrir" -> (valor as? Boolean)?.let { conectarAoAbrir = it }
                 "conectarNoBoot" -> (valor as? Boolean)?.let { conectarNoBoot = it }
                 "usarBridges" -> (valor as? Boolean)?.let { usarBridges = it }
                 "bridges" -> (valor as? String)?.let { bridges = it }
                 "contornoAutomatico" -> (valor as? Boolean)?.let { contornoAutomatico = it }
-                "avisosDispensados" -> (valor as? List<*>)?.let { lista ->
-                    avisosDispensados = lista.filterIsInstance<String>().toSet()
-                }
+                "avisosDispensados" -> textos(valor)?.let { avisosDispensados = it }
             }
+        }
+        val depois = comoMapa()
+        return depois.keys.filter { antes[it] != depois[it] }.toSet()
+    }
+
+    /** Tira o app da rota manual que estiver e coloca na pedida. */
+    fun definirRotaDoApp(pacote: String, pelaTor: Boolean, categoriaAutomatica: Boolean) {
+        val fora = appsForaDoTunel.toMutableSet()
+        val dentro = appsSempreNoTor.toMutableSet()
+        fora.remove(pacote)
+        dentro.remove(pacote)
+        if (pelaTor) {
+            // Só precisa de exceção se a rota inteligente o mandaria para fora.
+            if (categoriaAutomatica) dentro += pacote
+        } else if (!categoriaAutomatica) {
+            fora += pacote
+        }
+        appsForaDoTunel = fora
+        appsSempreNoTor = dentro
+    }
+
+    /** rota: "direto", "tor" ou "padrao". */
+    fun definirRotaDoDominio(dominio: String, rota: String): Boolean {
+        val d = RotaInteligente.normalizarDominio(dominio) ?: return false
+        val diretos = dominiosDiretos.toMutableSet().apply { remove(d) }
+        val tor = dominiosSempreTor.toMutableSet().apply { remove(d) }
+        when (rota) {
+            "direto" -> diretos += d
+            "tor" -> tor += d
+        }
+        dominiosDiretos = diretos
+        dominiosSempreTor = tor
+        return true
+    }
+
+    // ------------------------------------------------------------------
+
+    private fun migrar() {
+        val versao = sp.getInt(VERSAO, 1)
+        if (versao >= VERSAO_ATUAL) return
+        val e = sp.edit()
+        if (versao < 2) {
+            // Até a 6.0.x a lista de apps só valia no modo "Escolher apps".
+            // Agora toda escolha vale sempre; se o modo estava desligado, a
+            // lista antiga não estava em uso e não pode passar a valer.
+            if (!sp.getBoolean(SPLIT_TUNNEL_ANTIGO, false)) e.remove(EXCLUDED_APPS)
+            e.remove(SPLIT_TUNNEL_ANTIGO)
+        }
+        e.putInt(VERSAO, VERSAO_ATUAL).apply()
+    }
+
+    private fun conferirProcesso() {
+        if (avisouProcesso || Build.VERSION.SDK_INT < 28) return
+        val nome = Application.getProcessName() ?: return
+        if (!nome.endsWith(":vpn")) {
+            avisouProcesso = true
+            Log.e(TAG, "Configurações abertas fora do processo da VPN ($nome). Use a ponte.")
         }
     }
 
     companion object {
+        private const val TAG = "OrbionPreferencias"
+        @Volatile private var avisouProcesso = false
+
         private const val ARQUIVO = "orbion_settings"
+        private const val VERSAO = "versao_config"
+        private const val VERSAO_ATUAL = 2
+
         private const val KILL_SWITCH = "kill_switch"
         private const val BLOQUEAR_RASTREADORES = "block_trackers"
-        private const val DESVIO_DIRETO = "desvio_direto"
+        private const val ROTA_INTELIGENTE = "desvio_direto"
         private const val CAPTURAR_IPV6 = "capturar_ipv6"
-        private const val SPLIT_TUNNEL = "split_tunnel"
+        private const val SPLIT_TUNNEL_ANTIGO = "split_tunnel"
         private const val EXCLUDED_APPS = "excluded_apps"
+        private const val APPS_SEMPRE_TOR = "apps_sempre_tor"
+        private const val CATEGORIAS_DESLIGADAS = "categorias_desligadas"
+        private const val DESVIO_AUTOMATICO = "desvio_automatico"
+        private const val DOMINIOS_DIRETOS = "dominios_diretos"
+        private const val DOMINIOS_TOR = "dominios_tor"
         private const val INTERVALO_ROTACAO = "intervalo_rotacao"
         private const val CONECTAR_AO_ABRIR = "conectar_ao_abrir"
         private const val CONECTAR_NO_BOOT = "conectar_no_boot"
@@ -143,5 +301,6 @@ class Preferencias(context: Context) {
         private const val AVISOS_DISPENSADOS = "avisos_dispensados"
         private const val ESTAVA_LIGADA = "estava_ligada"
         private const val SEMPRE_ATIVA_CONHECIDA = "sempre_ativa_conhecida"
+        private const val ULTIMO_FECHAMENTO = "ultimo_fechamento_visto"
     }
 }

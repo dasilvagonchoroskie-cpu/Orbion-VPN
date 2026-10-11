@@ -1,11 +1,10 @@
 package com.orbion.vpn.motor
 
 /**
- * Estado atual da VPN, num lugar só.
+ * Estado atual da VPN, num lugar só (dentro do processo da VPN).
  *
- * O serviço escreve; a tela em Flutter lê (a cada segundo) pelo canal
- * "orbion/motor". Tudo aqui é @Volatile porque quem escreve e quem lê estão
- * em threads diferentes.
+ * O serviço escreve; a tela lê a cada segundo pela ponte (Ponte.kt). Tudo é
+ * @Volatile porque quem escreve e quem lê estão em linhas diferentes.
  */
 object Painel {
 
@@ -30,10 +29,16 @@ object Painel {
     @Volatile var contornoDeBloqueio: String? = null
     /** Resultado do último pedido de nova identidade. */
     @Volatile var avisoDeIdentidade: String? = null
+    /** A VPN tinha sido derrubada pelo sistema e foi religada sozinha. */
+    @Volatile var religamento: String? = null
     /** Caminho de entrada em uso: DIRETO, SNOWFLAKE ou OBFS4. */
     @Volatile var caminhoEmUso: String = "DIRETO"
     /** Apps fora do túnel na sessão atual (o que realmente vale agora). */
     @Volatile var appsForaNaSessao: Set<String> = emptySet()
+    /** Rotas de apps sendo aplicadas agora (a internet pisca ~1 s). */
+    @Volatile var aplicandoRotas: Boolean = false
+    /** O serviço da VPN existe neste momento. */
+    @Volatile var servicoAtivo: Boolean = false
     /** Informações que só o serviço sabe. */
     @Volatile var vpnSempreAtiva: Boolean = false
     @Volatile var bloqueioSemVpn: Boolean = false
@@ -67,7 +72,7 @@ object Painel {
     fun bloqueado(motivo: String) {
         estado = Estado.BLOQUEADO
         percentual = 0
-        mensagem = "Tráfego bloqueado pelo Kill Switch"
+        mensagem = "Reconectando à rede Tor"
         erro = motivo
     }
 
@@ -86,6 +91,8 @@ object Painel {
         velocidadeEnvio = 0L
         velocidadeRecebimento = 0L
         appsForaNaSessao = emptySet()
+        aplicandoRotas = false
+        quedasDoTor = 0
     }
 
     fun comoMapa(): Map<String, Any?> = mapOf(
@@ -100,8 +107,11 @@ object Painel {
         "velocidadeRecebimento" to velocidadeRecebimento,
         "contornoDeBloqueio" to contornoDeBloqueio,
         "avisoDeIdentidade" to avisoDeIdentidade,
+        "religamento" to religamento,
         "caminhoEmUso" to caminhoEmUso,
         "appsForaNaSessao" to appsForaNaSessao.toList(),
+        "aplicandoRotas" to aplicandoRotas,
+        "servicoAtivo" to servicoAtivo,
         "vpnSempreAtiva" to vpnSempreAtiva,
         "bloqueioSemVpn" to bloqueioSemVpn,
         "tipoPrimeiroPlano" to tipoPrimeiroPlano,

@@ -5,26 +5,31 @@ import 'package:flutter/material.dart';
 import '../controlador.dart';
 import '../motor.dart';
 import '../tema.dart';
+import '../util.dart';
 import '../widgets/comuns.dart';
 
-/// Escolha de quais aplicativos ficam FORA do túnel (split tunneling).
+enum _Filtro { todos, fora, tor }
+
+/// Rotas por aplicativo: quem passa pela rede Tor e quem vai por fora.
 class TelaApps extends StatefulWidget {
   final ControladorOrbion c;
-  const TelaApps({super.key, required this.c});
+  final ValueChanged<int> irPara;
+  const TelaApps({super.key, required this.c, required this.irPara});
 
   @override
   State<TelaApps> createState() => _TelaAppsState();
 }
 
 class _TelaAppsState extends State<TelaApps> {
-  List<AppInstalado> _apps = [];
+  List<AppRota> _apps = [];
   final Map<String, Uint8List> _icones = {};
   final Set<String> _pedindoIcone = {};
-  List<Suspeita> _suspeitas = [];
-  List<AppProblematico> _problematicos = [];
   bool _carregando = true;
   bool _mostrarSistema = false;
   String _busca = '';
+  _Filtro _filtro = _Filtro.todos;
+  String? _erro;
+  int _ultimoRetorno = -1;
 
   ControladorOrbion get c => widget.c;
 
@@ -35,19 +40,16 @@ class _TelaAppsState extends State<TelaApps> {
   }
 
   Future<void> _carregar() async {
-    setState(() => _carregando = true);
+    setState(() {
+      _carregando = true;
+      _erro = null;
+    });
     try {
       final apps = await Motor.listarApps(incluirSistema: _mostrarSistema);
-      final suspeitas = await Motor.suspeitas();
-      final problematicos = await Motor.appsProblematicos();
       if (!mounted) return;
-      setState(() {
-        _apps = apps;
-        _suspeitas = suspeitas;
-        _problematicos = problematicos;
-      });
-    } catch (_) {
-      // Mantém o que já tinha.
+      setState(() => _apps = apps);
+    } catch (e) {
+      if (mounted) setState(() => _erro = 'Não deu para ler a lista de apps agora. Puxe para baixo para tentar de novo.');
     } finally {
       if (mounted) setState(() => _carregando = false);
     }
@@ -60,52 +62,33 @@ class _TelaAppsState extends State<TelaApps> {
     Motor.icones(faltando).then((m) {
       if (!mounted) return;
       setState(() => _icones.addAll(m));
-    });
+    }).catchError((_) {});
   }
 
-  bool get _mudancaPendente {
-    final s = c.status;
-    if (!s.ligada) return false;
-    final desejado = c.config.escolherApps ? c.config.appsForaDoTunel : <String>{};
-    final atual = s.appsForaNaSessao.toSet();
-    return desejado.length != atual.length || !desejado.containsAll(atual);
-  }
-
-  Future<void> _trocarModo(bool escolher) async {
+  Future<void> _alternar(AppRota app, bool pelaTor) async {
     final ok = await confirmar(
       context,
-      titulo: escolher ? 'Ativar escolha por aplicativo?' : 'Proteger todos os aplicativos?',
-      texto: escolher
-          ? 'Você poderá tirar aplicativos da proteção individualmente.'
-          : 'Todos voltam a passar pelo Tor, inclusive os que você tinha tirado.',
+      titulo: pelaTor ? 'Mandar ${app.nome} pela rede Tor?' : 'Mandar ${app.nome} por fora do Tor?',
+      texto: pelaTor
+          ? 'Esse aplicativo passa a usar a rede Tor.\n\nSe ele recusar conexões do Tor (bancos, gov.br, WhatsApp e redes sociais costumam recusar), pode parar de funcionar.'
+          : 'Esse aplicativo passa a usar a internet normal, sem o Tor: o serviço dele vê o seu IP real. Os dados continuam protegidos pela criptografia do próprio app.\n\nOs demais continuam pela rede Tor.',
+      sim: pelaTor ? 'Pela rede Tor' : 'Por fora do Tor',
     );
     if (!ok) return;
-    await c.salvar({'escolherApps': escolher});
-  }
-
-  Future<void> _alternarApp(AppInstalado app, bool protegido) async {
-    final ok = await confirmar(
-      context,
-      titulo: protegido ? 'Devolver ${app.nome} à proteção?' : 'Tirar ${app.nome} da proteção?',
-      texto: protegido
-          ? 'Esse aplicativo voltará a passar pelo Tor.\n\nSe ele bloquear conexões pelo Tor, pode parar de funcionar.'
-          : 'Esse aplicativo passará a usar a internet SEM o Tor, com o seu IP real visível para os servidores dele.\n\nOs demais continuam protegidos.',
-      sim: protegido ? 'Devolver' : 'Tirar da proteção',
-    );
-    if (!ok) return;
-    final fora = {...c.config.appsForaDoTunel};
-    if (protegido) {
-      fora.remove(app.pacote);
-    } else {
-      fora.add(app.pacote);
+    try {
+      final rota = await Motor.rotaDeApp(app.pacote, pelaTor);
+      if (!mounted) return;
+      setState(() {
+        final i = _apps.indexWhere((a) => a.pacote == app.pacote);
+        if (i >= 0) _apps[i] = app.comRota(rotaAppDeTexto(rota));
+      });
+      await c.salvar(const {}); // recarrega a configuração
+      if (mounted && c.status.ligada) {
+        mostrarAviso(context, 'Aplicado. A internet pode piscar por 1 segundo.');
+      }
+    } catch (e) {
+      if (mounted) mostrarAviso(context, 'Não foi possível mudar a rota: $e');
     }
-    await c.salvar({'appsForaDoTunel': fora.toList()});
-  }
-
-  Future<void> _aplicar() async {
-    final erro = await c.reconectar();
-    if (!mounted) return;
-    mostrarAviso(context, erro ?? 'Reconectando para aplicar a nova lista de apps...');
   }
 
   @override
@@ -113,14 +96,23 @@ class _TelaAppsState extends State<TelaApps> {
     return ListenableBuilder(
       listenable: c,
       builder: (context, _) {
-        final escolher = c.config.escolherApps;
-        final fora = c.config.appsForaDoTunel;
-        final filtrados = _apps
-            .where((a) =>
-                _busca.isEmpty ||
-                a.nome.toLowerCase().contains(_busca.toLowerCase()) ||
-                a.pacote.toLowerCase().contains(_busca.toLowerCase()))
-            .toList();
+        // Voltou de outra tela do Android: a lista de apps pode ter mudado.
+        if (c.retornos != _ultimoRetorno) {
+          final primeira = _ultimoRetorno < 0;
+          _ultimoRetorno = c.retornos;
+          if (!primeira) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && !_carregando) _carregar();
+            });
+          }
+        }
+        final busca = _busca.toLowerCase();
+        final fora = _apps.where((a) => !a.pelaTor).toList();
+        final filtrados = _apps.where((a) {
+          if (_filtro == _Filtro.fora && a.pelaTor) return false;
+          if (_filtro == _Filtro.tor && !a.pelaTor) return false;
+          return busca.isEmpty || a.nome.toLowerCase().contains(busca) || a.pacote.toLowerCase().contains(busca);
+        }).toList();
 
         return RefreshIndicator(
           onRefresh: _carregar,
@@ -130,80 +122,74 @@ class _TelaAppsState extends State<TelaApps> {
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
                 sliver: SliverList(
                   delegate: SliverChildListDelegate([
-                    const Text('APPS NO TÚNEL', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 2)),
+                    const Text('ROTAS DOS APPS', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 2)),
                     const SizedBox(height: 4),
-                    const Text('Quem passa pela rede Tor e quem fica de fora',
-                        style: TextStyle(color: Cores.textoFraco)),
+                    const Text('Quem passa pela rede Tor e quem vai por fora', style: TextStyle(color: Cores.textoFraco)),
                     const SizedBox(height: 16),
-                    SegmentedButton<bool>(
-                      segments: const [
-                        ButtonSegment(value: false, label: Text('TUDO PELO TOR'), icon: Icon(Icons.shield)),
-                        ButtonSegment(value: true, label: Text('ESCOLHER APPS'), icon: Icon(Icons.checklist)),
-                      ],
-                      selected: {escolher},
-                      onSelectionChanged: (v) => _trocarModo(v.first),
+                    _cartaoResumo(fora.length),
+                    if (c.status.aplicandoRotas)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 10),
+                        child: Row(children: [
+                          SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                          SizedBox(width: 10),
+                          Expanded(child: Text('Aplicando as rotas... a internet pode piscar por 1 segundo.', style: TextStyle(color: Cores.ciano))),
+                        ]),
+                      ),
+                    if (_erro != null) CartaoAviso(icone: Icons.error_outline, cor: Cores.amarelo, titulo: 'Lista indisponível', texto: _erro!),
+                    TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Buscar apps...',
+                        prefixIcon: const Icon(Icons.search),
+                        filled: true,
+                        fillColor: Cores.cartao,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                      ),
+                      onChanged: (v) => setState(() => _busca = v),
                     ),
-                    const SizedBox(height: 14),
-                    if (_mudancaPendente)
-                      CartaoAviso(
-                        icone: Icons.sync_problem,
-                        cor: Cores.amarelo,
-                        titulo: '⚠ Suas mudanças ainda NÃO estão valendo',
-                        texto: 'A lista de apps só é aplicada quando o túnel é criado. Enquanto você não reconectar, vale a lista de quando a VPN foi ligada.\n\nA internet fica fora do ar por alguns segundos.',
-                        botao: 'Aplicar agora  •  reconecta sozinho',
-                        aoTocarBotao: _aplicar,
-                      ),
-                    if (_suspeitas.isNotEmpty) _cartaoSuspeitas(),
-                    if (_problematicos.isNotEmpty && !c.dispensado('apps:problematicos')) _cartaoProblematicos(),
-                    if (escolher) ...[
-                      Text(
-                        fora.isEmpty
-                            ? 'Desligue a chave dos apps que NÃO devem passar pelo Tor. Eles vão navegar sem proteção, com seu IP real.'
-                            : '${fora.length} app(s) fora do túnel. Eles navegam sem proteção, com seu IP real.',
-                        style: const TextStyle(color: Cores.textoFraco, height: 1.4),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        decoration: InputDecoration(
-                          hintText: 'Buscar apps...',
-                          prefixIcon: const Icon(Icons.search),
-                          filled: true,
-                          fillColor: Cores.cartao,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: Text('Todos (${_apps.length})'),
+                          selected: _filtro == _Filtro.todos,
+                          onSelected: (_) => setState(() => _filtro = _Filtro.todos),
                         ),
-                        onChanged: (v) => setState(() => _busca = v),
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Text('${filtrados.length} aplicativos', style: const TextStyle(color: Cores.textoFraco)),
-                          const Spacer(),
-                          TextButton.icon(
-                            onPressed: () {
-                              setState(() => _mostrarSistema = !_mostrarSistema);
-                              _carregar();
-                            },
-                            icon: Icon(_mostrarSistema ? Icons.visibility_off : Icons.visibility, size: 18),
-                            label: Text(_mostrarSistema ? 'Ocultar sistema' : 'Mostrar sistema'),
-                          ),
-                        ],
-                      ),
-                    ] else
-                      const LinhaInfo(
-                        icone: Icons.verified_user,
-                        titulo: 'Todos os aplicativos protegidos',
-                        subtitulo: 'Todo o tráfego passa pela rede Tor.',
-                        corDoIcone: Cores.verde,
-                        explicacao: 'Para tirar algum aplicativo da proteção (por exemplo, um app de banco que não funcione pelo Tor), toque em ESCOLHER APPS.',
-                      ),
+                        ChoiceChip(
+                          label: Text('Por fora (${fora.length})'),
+                          selected: _filtro == _Filtro.fora,
+                          onSelected: (_) => setState(() => _filtro = _Filtro.fora),
+                        ),
+                        ChoiceChip(
+                          label: Text('Pelo Tor (${_apps.length - fora.length})'),
+                          selected: _filtro == _Filtro.tor,
+                          onSelected: (_) => setState(() => _filtro = _Filtro.tor),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Text('${filtrados.length} aplicativos', style: const TextStyle(color: Cores.textoFraco)),
+                        const Spacer(),
+                        TextButton.icon(
+                          onPressed: () {
+                            setState(() => _mostrarSistema = !_mostrarSistema);
+                            _carregar();
+                          },
+                          icon: Icon(_mostrarSistema ? Icons.visibility_off : Icons.visibility, size: 18),
+                          label: Text(_mostrarSistema ? 'Ocultar sistema' : 'Mostrar sistema'),
+                        ),
+                      ],
+                    ),
                   ]),
                 ),
               ),
-              if (escolher && _carregando)
+              if (_carregando && _apps.isEmpty)
                 const SliverToBoxAdapter(
                   child: Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
-                ),
-              if (escolher && !_carregando)
+                )
+              else
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(10, 0, 10, 24),
                   sliver: SliverList(
@@ -211,18 +197,15 @@ class _TelaAppsState extends State<TelaApps> {
                       (context, i) {
                         final app = filtrados[i];
                         _pedirIcones(filtrados.skip(i).take(20).map((a) => a.pacote).toList());
-                        final protegido = !fora.contains(app.pacote);
                         final icone = _icones[app.pacote];
+                        final corRota = app.pelaTor ? Cores.verde : Cores.amarelo;
                         return ListTile(
                           leading: icone != null
                               ? Image.memory(icone, width: 40, height: 40, gaplessPlayback: true)
                               : const SizedBox(width: 40, height: 40, child: Icon(Icons.android, color: Cores.textoFraco)),
                           title: Text(app.nome, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text(
-                            protegido ? 'Protegido pelo Tor' : 'Fora do túnel  •  IP real',
-                            style: TextStyle(color: protegido ? Cores.verde : Cores.amarelo, fontSize: 12.5),
-                          ),
-                          trailing: Switch(value: protegido, onChanged: (v) => _alternarApp(app, v)),
+                          subtitle: Text(textoDaRota(app), style: TextStyle(color: corRota, fontSize: 12.5)),
+                          trailing: Switch(value: app.pelaTor, onChanged: (v) => _alternar(app, v)),
                         );
                       },
                       childCount: filtrados.length,
@@ -237,30 +220,42 @@ class _TelaAppsState extends State<TelaApps> {
     );
   }
 
-  Widget _cartaoSuspeitas() {
-    final linhas = _suspeitas.map((s) {
-      final quem = s.servico != null ? '${s.servico} (${s.motivo})' : s.servidor;
-      return '• $quem — ${s.tentativas} tentativas de reconexão';
-    }).join('\n');
-    return CartaoAviso(
-      icone: Icons.report_problem,
-      cor: Cores.amarelo,
-      titulo: 'Detectamos aplicativos apanhando',
-      texto: '$linhas\n\nConexão que reinicia sem parar é sinal de recusa do outro lado, não de lentidão.\n\n'
-          'Se o serviço estiver no catálogo do Orbion, o desvio automático já resolve. Se não estiver e o aplicativo continuar sem funcionar, aí sim vale tirá-lo do túnel na lista abaixo.',
-    );
-  }
-
-  Widget _cartaoProblematicos() {
-    final nomes = _problematicos.map((p) => '• ${p.nome}: ${p.motivo}').join('\n');
-    return CartaoAviso(
-      icone: Icons.info_outline,
-      cor: Cores.ciano,
-      titulo: '${_problematicos.length} app(s) instalados que bloqueiam Tor',
-      texto: '$nomes\n\n✓ Você não precisa fazer nada. Com o "desvio para serviços que barram o Tor" ligado (aba Config), o Orbion desvia sozinho apenas os endereços que esses serviços exigem.\n\n'
-          'Tirar o aplicativo inteiro do túnel só vale se ele continuar sem funcionar mesmo assim.',
-      botaoSecundario: 'Entendi, não avisar mais',
-      aoTocarSecundario: () => c.dispensarAviso('apps:problematicos'),
+  Widget _cartaoResumo(int quantosFora) {
+    final inteligente = c.config.rotaInteligente;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.alt_route, color: inteligente ? Cores.ciano : Cores.textoFraco),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    inteligente ? 'Rota inteligente ligada' : 'Rota inteligente desligada',
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                  ),
+                ),
+                Selo(inteligente ? 'AUTOMÁTICO' : 'MANUAL', inteligente ? Cores.verde : Cores.textoFraco),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              inteligente
+                  ? '$quantosFora app(s) vão por fora do Tor — bancos, governo, mensageiros, redes sociais e outros que recusam a rede Tor. Todo o resto passa pelo Tor.\n\n'
+                      'A chave de cada app (ligada = pela rede Tor) muda a rota dele. O que vai por fora continua cifrado pelo próprio app.'
+                  : 'Só os apps que você escolher vão por fora. Todo o resto passa pela rede Tor — bancos, gov.br e WhatsApp costumam não funcionar assim.',
+              style: const TextStyle(color: Cores.textoFraco, height: 1.4, fontSize: 13),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(onPressed: () => widget.irPara(3), child: const Text('Ajustar categorias')),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

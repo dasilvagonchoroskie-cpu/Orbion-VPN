@@ -11,7 +11,6 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import java.net.InetAddress
-import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -23,6 +22,8 @@ import java.util.concurrent.TimeUnit
  * privado, VPN sempre ativa) somem por conta própria quando resolvidos.
  * Os que o Android não deixa conferir (ajustes da marca do celular, por
  * exemplo) ganham o botão "Já fiz", e somem quando a pessoa confirma.
+ *
+ * Roda no processo da VPN (usa as configurações).
  */
 object Diagnostico {
 
@@ -30,7 +31,8 @@ object Diagnostico {
 
     enum class Acao {
         NENHUMA, ISENTAR_BATERIA, ABRIR_DNS_PRIVADO, PEDIR_NOTIFICACAO, ABRIR_VPN,
-        ABRIR_APP_INFO, ABRIR_DESENVOLVEDOR, ABRIR_APPS, ABRIR_AUTOSTART, ABRIR_BATERIA_MARCA
+        ABRIR_APP_INFO, ABRIR_DESENVOLVEDOR, ABRIR_APPS, ABRIR_AUTOSTART, ABRIR_BATERIA_MARCA,
+        ABRIR_REGISTROS
     }
 
     data class Item(
@@ -57,17 +59,19 @@ object Diagnostico {
     const val PREFIXO = "diag:"
 
     fun verificar(context: Context): List<Item> {
-        val confirmados = Preferencias(context).avisosDispensados
+        val prefs = Preferencias(context)
+        val confirmados = prefs.avisosDispensados
         val itens = listOfNotNull(
             binarios(context),
             bateria(context),
             fabricante(context),
+            fechamentos(context),
             sempreAtiva(context),
             processosFilhos(),
             notificacoes(context),
             dnsPrivado(context),
             resolucaoDeNomes(),
-            appsIncompativeis(context),
+            rotaInteligente(context, prefs),
         )
         // O que a pessoa já confirmou vira "em ordem" e sai da lista de pendências.
         return itens.map { i ->
@@ -80,28 +84,14 @@ object Diagnostico {
     }
 
     // ------------------------------------------------------------------
-    // Marca do celular
-    // ------------------------------------------------------------------
-
-    private val marca: String
-        get() = (Build.MANUFACTURER + " " + Build.BRAND).lowercase(Locale.ROOT)
-
-    fun ehXiaomi(): Boolean = marca.let { "xiaomi" in it || "redmi" in it || "poco" in it }
-
-    /** Marcas com economia de bateria própria, que o Android não deixa conferir. */
-    private fun marcaComGerenciadorProprio(): Boolean = ehXiaomi() || marca.let {
-        "huawei" in it || "honor" in it || "oppo" in it || "realme" in it ||
-            "oneplus" in it || "vivo" in it
-    }
 
     /**
      * "Início automático" da Xiaomi está ligado para o Orbion?
      * true/false quando a Xiaomi informa; null quando não dá para saber.
-     *
      * A Xiaomi guarda essa chave como uma permissão própria (código 10008).
      */
     fun inicioAutomaticoXiaomi(context: Context): Boolean? {
-        if (!ehXiaomi()) return null
+        if (Fabricantes.marca() != Fabricantes.Marca.XIAOMI) return null
         return try {
             val ops = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
             val metodo = AppOpsManager::class.java.getMethod(
@@ -117,8 +107,6 @@ object Diagnostico {
             null
         }
     }
-
-    // ------------------------------------------------------------------
 
     private fun binarios(context: Context): Item {
         val tor = Transportes.torDisponivel(context)
@@ -139,6 +127,7 @@ object Diagnostico {
         }
     }
 
+    /** Não usa as configurações: pode ser chamado de qualquer processo. */
     fun bateriaIsenta(context: Context): Boolean = try {
         (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
             .isIgnoringBatteryOptimizations(context.packageName)
@@ -152,67 +141,70 @@ object Diagnostico {
 
     private fun bateria(context: Context): Item {
         if (bateriaIsenta(context)) {
-            return Item("bateria", "Economia de bateria", "O Orbion está liberado para rodar em segundo plano.", Gravidade.OK)
+            return Item("bateria", "Economia de bateria do Android", "O Orbion está liberado para rodar em segundo plano.", Gravidade.OK)
         }
-        val texto = if (ehXiaomi()) {
-            "O celular pode encerrar o Orbion para poupar bateria, e a VPN cai junto.\n\n" +
-                "Toque em \"Liberar o Orbion\". Se aparecer a pergunta do Android, toque em Permitir. " +
-                "Se abrir a tela de Economia de bateria da Xiaomi, escolha \"Sem restrições\" e volte para cá."
-        } else {
-            "O Android está autorizado a encerrar o Orbion para poupar bateria. Quando isso acontece a VPN cai e o celular pode ficar sem internet."
-        }
+        val proprio = Fabricantes.temGerenciadorProprio()
+        val texto = "O Android está autorizado a encerrar o Orbion para poupar bateria. Quando isso acontece a VPN cai e o celular pode ficar sem internet.\n\n" +
+            "Toque em \"Liberar o Orbion\". Se aparecer uma pergunta, toque em Permitir (Allow). " +
+            "Se abrir uma tela de bateria, escolha \"Sem restrições\" (Unrestricted) ou \"Não otimizar\" (Don't optimize) e volte para cá."
         return Item(
-            "bateria", "Economia de bateria", texto,
+            "bateria", "Economia de bateria do Android", texto,
             Gravidade.GRAVE, Acao.ISENTAR_BATERIA, "Liberar o Orbion",
-            // Nas marcas com gerenciador próprio, o "Sem restrições" delas nem
-            // sempre aparece para o app. Então a pessoa confirma.
-            dispensar = if (marcaComGerenciadorProprio()) "Já deixei \"Sem restrições\"" else "",
+            // Em marcas com gerenciador próprio, a escolha feita na tela da
+            // marca nem sempre aparece para o app. Então a pessoa confirma.
+            dispensar = if (proprio) "Já deixei \"Sem restrições\"" else "",
         )
     }
 
-    /** Fabricantes com "matador de apps" próprio, além do Android. */
+    /** O "matador de apps" da marca do celular, além do Android. */
     private fun fabricante(context: Context): Item {
-        val m = marca
-        if (ehXiaomi()) {
-            val auto = inicioAutomaticoXiaomi(context)
-            val linhaAuto = when (auto) {
-                true -> "✓ Início automático: ligado"
-                false -> "✗ Início automático: DESLIGADO — toque em \"Abrir início automático\" e ligue o Orbion VPN"
-                null -> "• Início automático: ligado para o Orbion VPN"
-            }
-            val texto = "Ajustes da Xiaomi para ela não fechar o Orbion:\n\n" +
-                "$linhaAuto\n" +
-                "• Economia de bateria do app: \"Sem restrições\"\n" +
-                "• Na tela de apps recentes: segure o Orbion e toque no cadeado"
-            return Item(
-                "fabricante", "Ajustes da Xiaomi", texto,
-                if (auto == false) Gravidade.ATENCAO else Gravidade.DICA,
-                if (auto == true) Acao.ABRIR_BATERIA_MARCA else Acao.ABRIR_AUTOSTART,
-                if (auto == true) "Abrir economia de bateria" else "Abrir início automático",
-                dispensar = "Já fiz esses ajustes",
-                acao2 = if (auto == true) Acao.NENHUMA else Acao.ABRIR_BATERIA_MARCA,
-                botao2 = if (auto == true) "" else "Economia de bateria",
-            )
+        val marca = Fabricantes.marca()
+        val passos = Fabricantes.passos()
+        val temInicio = Fabricantes.telasDeInicioAutomatico(context).isNotEmpty()
+        val temBateria = Fabricantes.telasDeBateria(context).isNotEmpty()
+        val auto = inicioAutomaticoXiaomi(context)
+        val linhas = passos.mapIndexed { i, p -> "${i + 1}. $p" }.toMutableList()
+        when (auto) {
+            true -> linhas.add(0, "✓ Início automático: ligado.")
+            false -> linhas.add(0, "✗ Início automático: DESLIGADO — é ele que deixa o Orbion voltar sozinho.")
+            null -> Unit
         }
-        val passos = when {
-            "samsung" in m ->
-                "Samsung: abra Configurações → Bateria → Limites de uso em segundo plano → \"Apps que nunca são suspensos\" e adicione o Orbion. " +
-                    "Depois, nas informações do app → Bateria, escolha \"Sem restrições\"."
-            "motorola" in m ->
-                "Motorola: nas informações do app → Bateria, escolha \"Sem restrições\"."
-            "huawei" in m || "honor" in m ->
-                "Huawei/Honor: Configurações → Bateria → Inicialização de apps → Orbion → gerenciar manualmente e ligar as três chaves."
-            "oppo" in m || "realme" in m || "oneplus" in m ->
-                "OPPO/realme/OnePlus: nas informações do app → Uso da bateria, ligue \"Permitir atividade em segundo plano\" e \"Permitir início automático\"."
-            "vivo" in m ->
-                "Vivo: Configurações → Bateria → Consumo de energia em segundo plano → permitir para o Orbion."
-            else ->
-                "Nas informações do app → Bateria, escolha \"Sem restrições\" (o nome muda conforme a marca)."
+        val texto = "Para o sistema do seu ${marca.nome} não fechar o Orbion:\n\n" + linhas.joinToString("\n\n")
+        val (acao1, botao1) = when {
+            temInicio && auto != true -> Acao.ABRIR_AUTOSTART to "Abrir início automático"
+            temBateria -> Acao.ABRIR_BATERIA_MARCA to "Abrir bateria do ${marca.nome.substringBefore(" /")}"
+            else -> Acao.ABRIR_APP_INFO to "Abrir informações do app"
+        }
+        val (acao2, botao2) = when {
+            acao1 == Acao.ABRIR_AUTOSTART && temBateria -> Acao.ABRIR_BATERIA_MARCA to "Bateria"
+            acao1 != Acao.ABRIR_APP_INFO -> Acao.ABRIR_APP_INFO to "Informações do app"
+            else -> Acao.NENHUMA to ""
         }
         return Item(
-            "fabricante", "Ajuste da marca do celular (${Build.MANUFACTURER})", passos,
-            Gravidade.DICA, Acao.ABRIR_APP_INFO, "Abrir informações do app",
-            dispensar = "Já fiz",
+            "fabricante", "Ajustes do ${marca.nome}", texto,
+            if (auto == false) Gravidade.ATENCAO else Gravidade.DICA,
+            acao1, botao1,
+            dispensar = "Já fiz esses ajustes",
+            acao2 = acao2, botao2 = botao2,
+        )
+    }
+
+    /** O Android derrubou a VPN nos últimos dias? (Android 11+) */
+    private fun fechamentos(context: Context): Item? {
+        if (Build.VERSION.SDK_INT < 30) return null
+        val semana = System.currentTimeMillis() - 7 * 24 * 3600_000L
+        val recentes = Eventos.fechamentos(context, 20).filter { it.daVpn && it.inesperado && it.quando > semana }
+        if (recentes.isEmpty()) {
+            return Item("fechamentos", "Quedas da VPN", "O Android não derrubou a VPN nos últimos 7 dias.", Gravidade.OK)
+        }
+        val ultimo = recentes.maxByOrNull { it.quando }!!
+        return Item(
+            "fechamentos", "O Android derrubou a VPN ${recentes.size} vez(es) em 7 dias",
+            "A última foi em ${Eventos.hora(ultimo.quando)}: ${ultimo.explicacao}.\n\n" +
+                "O Orbion religou sozinho, mas o ideal é não cair. Faça os ajustes de bateria e da marca acima. " +
+                "Os detalhes de cada queda ficam em Registros → Eventos.",
+            Gravidade.ATENCAO, Acao.ABRIR_REGISTROS, "Ver detalhes",
+            dispensar = "Entendi",
         )
     }
 
@@ -239,7 +231,7 @@ object Diagnostico {
         try {
             // Android 8 e 9 deixam ler direto; nos mais novos isto é recusado.
             val app = Settings.Secure.getString(context.contentResolver, "always_on_vpn_app")
-            return app == context.packageName
+            if (app != null) return app == context.packageName
         } catch (_: Exception) {
         }
         return when (prefs.sempreAtivaConhecida) {
@@ -250,24 +242,17 @@ object Diagnostico {
     }
 
     private fun sempreAtiva(context: Context): Item {
-        val ligada = sempreAtivaLigada(context)
-        return when (ligada) {
-            true -> Item(
-                "sempreativa", "VPN sempre ativa",
-                "Ligada. Se o Orbion for fechado, o próprio Android religa.",
-                Gravidade.OK,
-            )
+        val texto = "É a proteção mais forte contra quedas: marcado como \"VPN sempre ativa\" (Always-on VPN), é o próprio Android que religa o Orbion se ele cair.\n\n" +
+            "Toque no botão, abra a engrenagem ao lado de Orbion VPN e ligue \"VPN sempre ativa\" (Always-on VPN)."
+        return when (sempreAtivaLigada(context)) {
+            true -> Item("sempreativa", "VPN sempre ativa", "Ligada. Se o Orbion for fechado, o próprio Android religa.", Gravidade.OK)
             false -> Item(
-                "sempreativa", "VPN sempre ativa",
-                "É a proteção mais forte contra o Android encerrar o Orbion: marcada como \"VPN sempre ativa\", é o próprio sistema que religa o Orbion se ele cair.\n\n" +
-                    "Toque no botão, abra a engrenagem ao lado de Orbion VPN e ligue \"VPN sempre ativa\".",
+                "sempreativa", "VPN sempre ativa", texto,
                 Gravidade.ATENCAO, Acao.ABRIR_VPN, "Abrir configurações de VPN",
                 dispensar = "Não quero usar",
             )
             null -> Item(
-                "sempreativa", "VPN sempre ativa",
-                "Marque o Orbion como \"VPN sempre ativa\" nas configurações de VPN do Android: assim o próprio sistema religa o Orbion se ele for fechado.\n\n" +
-                    "Toque no botão, abra a engrenagem ao lado de Orbion VPN e ligue \"VPN sempre ativa\".",
+                "sempreativa", "VPN sempre ativa", texto,
                 Gravidade.DICA, Acao.ABRIR_VPN, "Abrir configurações de VPN",
                 dispensar = "Já fiz",
             )
@@ -280,7 +265,7 @@ object Diagnostico {
             Item(
                 "processosfilhos", "Restrição de processos filhos (opcional)",
                 "O Tor roda como um programa auxiliar do Orbion. No Android 12 ou mais novo, o sistema pode encerrar esse programa se achar que ele está gastando demais em segundo plano.\n\n" +
-                    "Com os ajustes acima isso quase não acontece. Se mesmo assim o Tor cair sozinho, ative as Opções do desenvolvedor e ligue \"Desativar restrições de processos filhos\".",
+                    "Com os ajustes acima isso quase não acontece. Se mesmo assim o Tor cair sozinho, ative as Opções do desenvolvedor (Developer options) e ligue \"Desativar restrições de processos filhos\" (Disable child process restrictions).",
                 Gravidade.DICA, Acao.ABRIR_DESENVOLVEDOR, "Abrir opções do desenvolvedor",
                 dispensar = "Entendi",
             )
@@ -307,7 +292,7 @@ object Diagnostico {
         } else {
             Item(
                 "notificacao", "Notificações",
-                "Bloqueadas. Sem elas você não vê se a VPN está no ar nem consegue desligá-la pela barra.",
+                "Bloqueadas. Sem elas você não vê se a VPN está no ar, não consegue desligá-la pela barra e não recebe o aviso \"toque para religar\".",
                 Gravidade.ATENCAO, Acao.PEDIR_NOTIFICACAO, "Permitir",
             )
         }
@@ -341,15 +326,15 @@ object Diagnostico {
         is StatusDns.Desligado -> Item("dnsprivado", "DNS Privado do Android", "Desligado, como deve ser. Os nomes são resolvidos pela rede Tor.", Gravidade.OK)
         is StatusDns.Automatico -> Item(
             "dnsprivado", "DNS Privado do Android",
-            "Está no modo automático. Isso faz a primeira página demorar cerca de 15 segundos a mais para abrir.",
-            Gravidade.ATENCAO, Acao.ABRIR_DNS_PRIVADO, "Abrir configuração",
+            "Está no modo automático. Funciona, mas o ideal é deixar \"Desativado\" (Off): assim nenhuma consulta de endereço tenta outro caminho antes do túnel.",
+            Gravidade.DICA, Acao.ABRIR_DNS_PRIVADO, "Abrir configuração",
             dispensar = "Deixar assim",
         )
         is StatusDns.Fixo -> Item(
             "dnsprivado", "DNS Privado impede o Orbion de funcionar",
             "Está fixo em \"${s.servidor}\".\n\nCom ele ligado, os aplicativos descobrem os endereços por fora do túnel e conectam por número, sem o nome do site. " +
-                "O Orbion deixa de reconhecer o destino — e sem isso não consegue desviar os serviços que barram o Tor, nem bloquear rastreadores, nem listar os domínios nos Registros.\n\n" +
-                "Desligue. Com o Orbion conectado você não perde nada: o próprio túnel resolve os nomes por dentro.\n\n" +
+                "O Orbion deixa de reconhecer o destino — e sem isso não consegue desviar os sites que barram o Tor, nem bloquear rastreadores, nem listar os domínios nos Registros.\n\n" +
+                "Desligue em Configurações (Settings) → Rede e Internet (Network & internet) → DNS Privado (Private DNS) → \"Desativado\" (Off). Com o Orbion conectado você não perde nada: o próprio túnel resolve os nomes por dentro.\n\n" +
                 "SÓ RELIGUE se, com o Orbion DESCONECTADO, o celular parar de navegar — algumas redes bloqueiam a porta de DNS comum.",
             Gravidade.GRAVE, Acao.ABRIR_DNS_PRIVADO, "Abrir configuração",
         )
@@ -376,30 +361,32 @@ object Diagnostico {
             Item(
                 "dns", "Resolução de nomes",
                 "O aparelho NÃO está conseguindo traduzir nomes de sites em endereços. Isso não é o Orbion — acontece igual com ele desligado.\n\n" +
-                    "Esqueça a rede Wi-Fi e conecte de novo. Se persistir, defina um DNS fixo em Wi-Fi → sua rede → Modificar → IP estático → DNS 1: 1.1.1.1",
+                    "Esqueça a rede Wi-Fi e conecte de novo. Se persistir, defina um DNS fixo em Wi-Fi → sua rede → Modificar (Modify) → IP estático (Static) → DNS 1: 1.1.1.1",
                 Gravidade.GRAVE,
             )
         }
     }
 
-    private fun appsIncompativeis(context: Context): Item {
-        val instalados = AppsProblematicos.instaladosNoAparelho(context)
-        if (instalados.isEmpty()) {
-            return Item("appsincompativeis", "Aplicativos incompatíveis", "Nenhum aplicativo conhecido por bloquear o Tor está instalado.", Gravidade.OK)
+    private fun rotaInteligente(context: Context, prefs: Preferencias): Item {
+        if (!prefs.rotaInteligente) {
+            return Item(
+                "rotainteligente", "Rota inteligente desligada",
+                "Tudo passa pela rede Tor, menos o que você escolheu à mão. Bancos, gov.br, WhatsApp e redes sociais costumam não funcionar assim.",
+                Gravidade.DICA, Acao.ABRIR_APPS, "Ver apps",
+                dispensar = "Quero assim",
+            )
         }
-        val prefs = Preferencias(context)
-        val fora = if (prefs.escolherApps) prefs.appsForaDoTunel else emptySet()
-        val pendentes = instalados.filter { it.pacote !in fora }
-        if (pendentes.isEmpty()) {
-            return Item("appsincompativeis", "Aplicativos incompatíveis", "Todos os aplicativos conhecidos por bloquear o Tor já estão fora do túnel.", Gravidade.OK)
+        val fora = RotaInteligente.appsForaDoTor(context, prefs)
+        if (fora.isEmpty()) {
+            return Item("rotainteligente", "Rota inteligente", "Ligada. Nenhum app deste celular precisa sair do Tor.", Gravidade.OK)
         }
+        val porMotivo = fora.values.groupingBy { it }.eachCount().entries
+            .sortedByDescending { it.value }
+            .joinToString(", ") { "${it.key} (${it.value})" }
         return Item(
-            "appsincompativeis", "Aplicativos que barram a rede Tor",
-            "${pendentes.size} instalado(s): ${pendentes.joinToString(", ") { it.nome }}.\n\n" +
-                "Não é preciso fazer nada. O Orbion desvia sozinho apenas os endereços que esses serviços exigem, e mantém o restante do tráfego deles passando pela rede Tor.\n\n" +
-                "Se algum continuar sem funcionar mesmo assim, tire-o do túnel pela chave dele na aba Apps.",
-            Gravidade.DICA, Acao.ABRIR_APPS, "Ir para Apps",
-            dispensar = "Entendi",
+            "rotainteligente", "Rota inteligente",
+            "Ligada. ${fora.size} app(s) vão por fora do Tor automaticamente: $porMotivo. O resto passa pela rede Tor.",
+            Gravidade.OK,
         )
     }
 }

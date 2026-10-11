@@ -32,6 +32,32 @@ jobs:
       - name: Ferramentas de conferência
         run: sudo apt-get update -qq && sudo apt-get install -y -qq file gnupg binutils >/dev/null
 
+      - name: Preparar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Baixar dependências
+        run: flutter pub get
+
+      - name: Análise estática (flutter analyze)
+        run: |
+          set -o pipefail
+          if ! flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analise.log; then
+            grep -E "error -|error •" analise.log | head -40 | while IFS= read -r l; do echo "::error title=flutter analyze::$l"; done
+            exit 1
+          fi
+
+      - name: Testes (flutter test)
+        run: |
+          set -o pipefail
+          if ! flutter test 2>&1 | tee teste.log; then
+            grep -E "FAILED|Expected:|Actual:|Error:|error:" teste.log | head -40 | while IFS= read -r l; do echo "::error title=flutter test::$l"; done
+            exit 1
+          fi
+
       - name: Motor — túnel (hev-socks5-tunnel) compilado do código-fonte
         run: scripts/compilar-hev.sh android/app/src/main/jniLibs
 
@@ -75,32 +101,6 @@ jobs:
             itens="$(for f in "$d"*.so; do printf '%s(%s) ' "$(basename "$f" .so | sed 's/^lib//')" "$(file -b "$f" | grep -oE 'executable|shared object' | head -1)"; done)"
             echo "::notice title=motor $abi::$itens"
           done
-
-      - name: Preparar Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-
-      - name: Baixar dependências
-        run: flutter pub get
-
-      - name: Análise estática (flutter analyze)
-        run: |
-          set -o pipefail
-          if ! flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analise.log; then
-            grep -E "error -|error •" analise.log | head -40 | while IFS= read -r l; do echo "::error title=flutter analyze::$l"; done
-            exit 1
-          fi
-
-      - name: Testes (flutter test)
-        run: |
-          set -o pipefail
-          if ! flutter test 2>&1 | tee teste.log; then
-            grep -E "FAILED|Expected:|Actual:|Error:|error:" teste.log | head -40 | while IFS= read -r l; do echo "::error title=flutter test::$l"; done
-            exit 1
-          fi
 
       - name: Chave de assinatura do Orbion
         env:
@@ -152,6 +152,58 @@ jobs:
           done
           sha256sum saida/*.apk > saida/SHA256SUMS.txt
           cat saida/SHA256SUMS.txt
+
+      - name: Conferir o manifesto (processo da VPN e regras da Play Store)
+        run: |
+          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          apk=$(ls saida/*arm64-v8a*.apk 2>/dev/null | head -1)
+          [ -z "$apk" ] && apk=$(ls saida/*.apk | head -1)
+          "$AAPT2" dump xmltree --file AndroidManifest.xml "$apk" > manifesto.txt
+          if grep -q "QUERY_ALL_PACKAGES" manifesto.txt; then echo "::error::QUERY_ALL_PACKAGES voltou ao manifesto (a Play Store recusa para VPN)"; exit 1; fi
+          python3 - <<'PY'
+          import sys
+          blocos, atual = [], []
+          for linha in open("manifesto.txt", encoding="utf-8", errors="replace"):
+              if linha.strip().startswith("E: "):
+                  if atual:
+                      blocos.append("".join(atual))
+                  atual = [linha]
+              else:
+                  atual.append(linha)
+          if atual:
+              blocos.append("".join(atual))
+          fora = []
+          for comp in ["OrbionVpnService", "Ponte", "Vigia", "BootReceiver"]:
+              achados = [b for b in blocos if f'motor.{comp}"' in b]
+              if not achados or ":vpn" not in achados[0]:
+                  fora.append(comp)
+          if fora:
+              print("::error::Fora do processo :vpn: " + ", ".join(fora))
+              sys.exit(1)
+          PY
+          echo "::notice title=manifesto::VPN, ponte, vigia e boot no processo :vpn; sem QUERY_ALL_PACKAGES"
+
+      - name: Conferir páginas de 16 KB (exigência da Play Store)
+        run: |
+          problemas=""
+          for apk in saida/*.apk; do
+            d=$(mktemp -d); unzip -q -o "$apk" 'lib/*' -d "$d" || true
+            for so in "$d"/lib/*/*.so; do
+              [ -f "$so" ] || continue
+              for alinhamento in $(readelf -lW "$so" 2>/dev/null | awk '/LOAD/ {print $NF}'); do
+                if [ $((alinhamento)) -lt 16384 ]; then
+                  problemas="$problemas $(basename "$apk"):$(basename "$so")=$alinhamento"
+                  break
+                fi
+              done
+            done
+            rm -rf "$d"
+          done
+          if [ -n "$problemas" ]; then
+            echo "::warning title=16 KB::Bibliotecas sem alinhamento de 16 KB:$problemas"
+          else
+            echo "::notice title=16 KB::Todas as bibliotecas nativas estão alinhadas em 16 KB"
+          fi
 
       - name: Publicar os APKs (artefato)
         uses: actions/upload-artifact@v4
