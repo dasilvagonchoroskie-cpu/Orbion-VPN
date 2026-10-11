@@ -22,6 +22,7 @@ class Vigia : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
         Filas.avulso {
             try {
+                com.orbion.vpn.Arquivos.limparRelatoriosAntigos(applicationContext)
                 verificar(applicationContext)
             } finally {
                 jobFinished(params, false)

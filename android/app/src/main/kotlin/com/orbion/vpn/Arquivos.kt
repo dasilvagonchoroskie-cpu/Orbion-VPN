@@ -29,6 +29,19 @@ class Arquivos : ContentProvider() {
         fun pasta(context: Context): File = File(context.cacheDir, PASTA).apply { mkdirs() }
 
         fun uri(nome: String): Uri = Uri.parse("content://$AUTORIDADE/$PASTA/$nome")
+
+        /**
+         * Relatórios com mais de 24 h são apagados (promessa da Política de
+         * Privacidade). Chamado ao abrir o app, ao gerar um relatório e pelo
+         * vigia de 15 min do processo da VPN.
+         */
+        fun limparRelatoriosAntigos(context: Context) {
+            try {
+                val limite = System.currentTimeMillis() - 24 * 3600_000L
+                File(context.cacheDir, PASTA).listFiles()?.forEach { if (it.lastModified() < limite) it.delete() }
+            } catch (_: Exception) {
+            }
+        }
     }
 
     override fun onCreate(): Boolean {

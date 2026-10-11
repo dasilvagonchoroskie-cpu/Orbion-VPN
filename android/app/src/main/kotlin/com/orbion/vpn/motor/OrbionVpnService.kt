@@ -803,6 +803,9 @@ class OrbionVpnService : VpnService() {
         jaConectou = false
         tentativaDeReconexao = 0
         Painel.zerarSessao()
+        // VPN desligada: a lista de sites recentes (só na memória) é apagada,
+        // como diz a Política de Privacidade.
+        FiltroSocks.zerar()
     }
 
     private fun fechar(pfd: ParcelFileDescriptor) {

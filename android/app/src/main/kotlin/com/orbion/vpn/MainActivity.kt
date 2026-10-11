@@ -87,6 +87,7 @@ class MainActivity : FlutterActivity() {
         // linha principal.
         fundo.execute {
             try {
+                Arquivos.limparRelatoriosAntigos(this)
                 prefsTela.contains("_")
                 ponte.chamar("ping", null)
             } catch (_: Exception) {
@@ -218,8 +219,7 @@ class MainActivity : FlutterActivity() {
                 val texto = ponte.chamar("relatorio", null) as? String ?: "Relatório indisponível."
                 val pasta = Arquivos.pasta(this)
                 // Relatórios antigos não ficam guardados.
-                val ontem = System.currentTimeMillis() - 24 * 3600_000L
-                pasta.listFiles()?.forEach { if (it.lastModified() < ontem) it.delete() }
+                Arquivos.limparRelatoriosAntigos(this)
                 val nome = "Orbion-relatorio-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date()) + ".txt"
                 File(pasta, nome).writeText(texto)
                 principal.post {
