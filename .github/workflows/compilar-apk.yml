@@ -49,6 +49,9 @@ jobs:
             grep -E "error -|error •" analise.log | head -40 | while IFS= read -r l; do echo "::error title=flutter analyze::$l"; done
             exit 1
           fi
+          # Avisos e sugestões não param a esteira, mas ficam visíveis no resumo.
+          grep -E "(warning|info) (-|•)" analise.log | head -30 | while IFS= read -r l; do echo "::warning title=flutter analyze::$l"; done || true
+          grep -E "issues? found|No issues found" analise.log | tail -1 | while IFS= read -r l; do echo "::notice title=flutter analyze::$l"; done || true
 
       - name: Testes (flutter test)
         run: |
@@ -57,6 +60,7 @@ jobs:
             grep -E "FAILED|Expected:|Actual:|Error:|error:" teste.log | head -40 | while IFS= read -r l; do echo "::error title=flutter test::$l"; done
             exit 1
           fi
+          grep -oE "\+[0-9]+: All tests passed!" teste.log | tail -1 | while IFS= read -r l; do echo "::notice title=flutter test::$l"; done || true
 
       - name: Motor — túnel (hev-socks5-tunnel) compilado do código-fonte
         run: scripts/compilar-hev.sh android/app/src/main/jniLibs
