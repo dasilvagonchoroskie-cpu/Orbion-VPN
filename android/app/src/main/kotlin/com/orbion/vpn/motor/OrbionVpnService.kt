@@ -13,14 +13,18 @@ import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import com.orbion.vpn.MainActivity
 import com.orbion.vpn.R
+import java.util.Collections
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -182,7 +186,13 @@ class OrbionVpnService : VpnService() {
     @Volatile private var tarefaTrocaDeRede: ScheduledFuture<*>? = null
     @Volatile private var tarefaReconstrucao: ScheduledFuture<*>? = null
     @Volatile private var vigiaDeRede: ConnectivityManager.NetworkCallback? = null
-    @Volatile private var redeAtual: Network? = null
+    private val redesVivas: MutableSet<Network> = Collections.newSetFromMap(ConcurrentHashMap())
+    private val redesSemInternet: MutableSet<Network> = Collections.newSetFromMap(ConcurrentHashMap())
+    /** A rede física que o Tor estava usando da última vez que (re)conectou. */
+    @Volatile private var redeDoTor: Network? = null
+    /** Sem rede nenhuma: o Tor está com DisableNetwork=1 até a internet voltar. */
+    @Volatile private var torEmEspera = false
+    @Volatile private var ultimoRecomecoDeRede = 0L
 
     @Volatile private var killSwitch = true
     @Volatile private var jaConectou = false
@@ -445,6 +455,11 @@ class OrbionVpnService : VpnService() {
 
             jaConectou = true
             tentativaDeReconexao = 0
+            // Tor novo, conexões novas: a referência de rede recomeça daqui.
+            redeDoTor = redePadrao()
+            torEmEspera = false
+            Painel.semInternet = false
+            FiltroSocks.redeEmEspera = false
             Painel.conectado()
             if (origemAutomatica(origem) && origem != ORIGEM_BOOT) {
                 val f = Inicio.consumirFechamento()
@@ -558,7 +573,8 @@ class OrbionVpnService : VpnService() {
                 }
             }
             if (Build.VERSION.SDK_INT >= 29) b.setMetered(false)
-            redeAtual?.let { b.setUnderlyingNetworks(arrayOf(it)) }
+            // Sem setUnderlyingNetworks: a VPN acompanha sozinha a rede padrão
+            // do aparelho (o próprio Android atualiza quando ela muda).
             b.establish()
         } catch (e: Exception) {
             Log.e(TAG, "Erro ao criar a interface de VPN: ${e.message}", e)
@@ -571,8 +587,10 @@ class OrbionVpnService : VpnService() {
     // ------------------------------------------------------------------
 
     private fun agendarReconstrucao(motivo: String) {
+        // 2,5 s de espera: quem está mexendo em vários apps seguidos vê a
+        // internet piscar uma vez só, no fim.
         tarefaReconstrucao?.cancel(false)
-        tarefaReconstrucao = Filas.depois(1_200) { Filas.noControle { reconstruirInterface(motivo) } }
+        tarefaReconstrucao = Filas.depois(2_500) { Filas.noControle { reconstruirInterface(motivo) } }
     }
 
     private fun reconstruirInterface(motivo: String) {
@@ -602,10 +620,17 @@ class OrbionVpnService : VpnService() {
             Painel.appsForaNaSessao = fora.keys
             TunelHev.parar()
             val porta = if (filtro != null) FiltroSocks.PORTA else TorManager.SOCKS_PORT
-            val erro = TunelHev.iniciar(this, nova.fd, porta, MTU)
+            var erro = TunelHev.iniciar(this, nova.fd, porta, MTU)
+            if (erro != null) {
+                // Uma segunda chance antes de acionar o Kill Switch.
+                Log.w(TAG, "Túnel não voltou na troca de rotas ($erro). Tentando de novo.")
+                Thread.sleep(600)
+                erro = TunelHev.iniciar(this, nova.fd, porta, MTU)
+            }
             if (antiga != null && antiga !== nova) fechar(antiga)
             if (erro != null) {
                 reconstruindo = false
+                Eventos.anotar(this, "O túnel não voltou depois da troca de rotas: ${erro.lineSequence().firstOrNull() ?: erro}")
                 falhar(geracao.get(), erro, fatal = false)
                 return
             }
@@ -790,22 +815,34 @@ class OrbionVpnService : VpnService() {
         tarefaSupervisao?.cancel(false)
         var voltas = 0
         tarefaSupervisao = Filas.repetir(5_000, 5_000) {
-            if (Painel.estado != Painel.Estado.CONECTADO || reconstruindo) return@repetir
-            val g = geracao.get()
-            val problema = when {
-                tor?.estaVivo() != true -> MSG_TOR_CAIU
-                !TunelHev.rodando() -> MSG_TUNEL_PAROU
-                else -> null
-            }
-            if (problema != null) {
-                Filas.noControle { if (!reconstruindo && Painel.estado == Painel.Estado.CONECTADO) falhar(g, problema, fatal = false) }
-            }
+            if (Painel.estado != Painel.Estado.CONECTADO) return@repetir
+            // A conferência roda na fila de controle: assim ela nunca enxerga
+            // o túnel "parado" no meio de uma troca de rotas (na 6.1.0 isso
+            // acionava o Kill Switch à toa e reiniciava o Tor).
+            Filas.noControle { verificarSaude() }
             voltas++
             if (voltas % 12 == 0) {
                 TunelHev.controlarTamanhoDoLog(this)
                 atualizarInfoSempreAtiva()
             }
         }
+    }
+
+    /** Tor e túnel estão de pé? (fila de controle) */
+    private fun verificarSaude() {
+        if (Painel.estado != Painel.Estado.CONECTADO || reconstruindo || usuarioPediuParar) return
+        val problema = when {
+            tor?.estaVivo() != true -> MSG_TOR_CAIU
+            !TunelHev.rodando() -> MSG_TUNEL_PAROU
+            else -> return
+        }
+        falhar(geracao.get(), problema, fatal = false)
+    }
+
+    private fun telaLigada(): Boolean = try {
+        (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
+    } catch (_: Exception) {
+        true
     }
 
     private fun iniciarContador() {
@@ -830,8 +867,9 @@ class OrbionVpnService : VpnService() {
             ultimoReceb = s.recebidoBytes
             ultimoInstante = agora
             voltas++
-            // Notificação a cada ~4 s: suficiente e economiza bateria.
-            if (voltas % 2 == 0 && Painel.estado == Painel.Estado.CONECTADO) {
+            // Notificação a cada ~4 s, e só com a tela ligada: com a tela
+            // apagada ninguém vê, e redesenhar a barra gasta bateria.
+            if (voltas % 2 == 0 && Painel.estado == Painel.Estado.CONECTADO && telaLigada()) {
                 val fora = appsDaInterface.size
                 notificar(
                     "↑ ${formatarBytes(Painel.velocidadeEnvio)}/s  ↓ ${formatarBytes(Painel.velocidadeRecebimento)}/s  •  " +
@@ -891,54 +929,153 @@ class OrbionVpnService : VpnService() {
         return false
     }
 
+    /**
+     * Acompanha as redes FÍSICAS do aparelho (Wi-Fi, dados móveis...).
+     *
+     * Na 6.1.0 qualquer troca da "rede padrão" desligava e religava a rede do
+     * Tor na hora. O registro técnico mostrou isso acontecendo a cada 2–8 s
+     * (troca de apps na aba Apps / Wi-Fi oscilando): o Tor derrubava todas as
+     * conexões sem parar. Agora:
+     *  - só redes de verdade contam (NOT_VPN): mexer na própria VPN não é
+     *    "troca de rede";
+     *  - o Tor só é refeito se a rede que ELE usava sumiu ou ficou sem
+     *    internet, e existe outra boa; espera 3 s a rede assentar e no máximo
+     *    uma vez a cada 30 s;
+     *  - sem rede nenhuma, o Tor fica em espera (economiza bateria) e volta
+     *    sozinho quando a internet voltar.
+     */
     private fun acompanharTrocasDeRede() {
         if (vigiaDeRede != null) return
         val cm = conectividade()
+        val pedido = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
         val vigia = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = redeDeBase(network)
+            override fun onAvailable(network: Network) {
+                redesVivas.add(network)
+                agendarAvaliacaoDeRede()
+            }
+
             override fun onLost(network: Network) {
-                if (network == redeAtual) redeDeBase(null)
+                redesVivas.remove(network)
+                redesSemInternet.remove(network)
+                // As conexões que estavam nessa rede vão falhar: não é culpa
+                // dos sites, então não pausam nem desviam ninguém.
+                FiltroSocks.perdoarFalhas(45_000)
+                agendarAvaliacaoDeRede()
+            }
+
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                // Só interessa quando a rede ganha ou perde internet de verdade
+                // (o sinal do celular muda o tempo todo e não conta).
+                val semInternet = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                val mudou = if (semInternet) redesSemInternet.add(network) else redesSemInternet.remove(network)
+                if (mudou) {
+                    FiltroSocks.perdoarFalhas(45_000)
+                    agendarAvaliacaoDeRede()
+                }
             }
         }
         try {
-            // O Orbion está fora do próprio túnel, então a "rede padrão" dele
-            // é a rede física de verdade (Wi-Fi ou dados móveis).
-            cm.registerDefaultNetworkCallback(vigia)
+            redeDoTor = redePadrao()
+            cm.registerNetworkCallback(pedido, vigia)
             vigiaDeRede = vigia
         } catch (e: Exception) {
             Log.w(TAG, "Não foi possível acompanhar trocas de rede: ${e.message}")
         }
     }
 
-    private fun redeDeBase(rede: Network?) {
-        val anterior = redeAtual
-        redeAtual = rede
-        try {
-            setUnderlyingNetworks(rede?.let { arrayOf(it) })
-        } catch (e: Exception) {
-            Log.w(TAG, "setUnderlyingNetworks: ${e.message}")
-        }
-        if (rede != null && anterior != null && rede != anterior) {
-            // Espera a rede nova assentar e avisa o Tor.
-            tarefaTrocaDeRede?.cancel(false)
-            tarefaTrocaDeRede = Filas.depois(2_000) {
-                if (Painel.estado == Painel.Estado.CONECTADO) {
-                    val r = tor?.redeMudou()
-                    ResolvedorDoH.limparCache()
-                    Log.d(TAG, "Rede trocada; Tor avisado (${r ?: "ok"}).")
-                }
-            }
+    /** A rede física que o Android usa agora para o Orbion (nunca uma VPN). */
+    private fun redePadrao(): Network? = try {
+        val cm = conectividade()
+        cm.activeNetwork?.takeIf { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true }
+            ?: redesVivas.firstOrNull { it !in redesSemInternet }
+            ?: redesVivas.firstOrNull()
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun descreverRede(rede: Network?): String {
+        val caps = try {
+            rede?.let { conectividade().getNetworkCapabilities(it) }
+        } catch (_: Exception) {
+            null
+        } ?: return "outra rede"
+        return when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "dados móveis"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "cabo"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> "Bluetooth"
+            else -> "outra rede"
         }
     }
 
+    private fun agendarAvaliacaoDeRede(esperaMs: Long = 3_000) {
+        tarefaTrocaDeRede?.cancel(false)
+        tarefaTrocaDeRede = Filas.depois(esperaMs) { Filas.noControle { avaliarRede() } }
+    }
+
+    /** Decide se o Tor precisa refazer as conexões (fila de controle). */
+    private fun avaliarRede() {
+        val t = tor ?: return
+        if (Painel.estado != Painel.Estado.CONECTADO) return
+        if (redesVivas.isEmpty()) {
+            if (!torEmEspera) {
+                torEmEspera = true
+                Painel.semInternet = true
+                FiltroSocks.redeEmEspera = true
+                t.pausarRede()
+                Eventos.anotar(this, "O aparelho ficou sem internet. A rede Tor ficou em espera (poupa bateria) e volta sozinha.")
+            }
+            return
+        }
+        val padrao = redePadrao()
+        if (torEmEspera) {
+            torEmEspera = false
+            Painel.semInternet = false
+            FiltroSocks.perdoarFalhas(30_000)
+            FiltroSocks.redeEmEspera = false
+            // O que falhou sem internet ganha outra chance.
+            FiltroSocks.disjuntor.limpar()
+            t.retomarRede()
+            redeDoTor = padrao
+            ultimoRecomecoDeRede = System.currentTimeMillis()
+            ResolvedorDoH.limparCache()
+            Eventos.anotar(this, "A internet voltou (${descreverRede(padrao)}). A rede Tor retomou.")
+            return
+        }
+        val doTor = redeDoTor
+        val torSemRede = doTor == null || doTor !in redesVivas ||
+            (doTor in redesSemInternet && padrao != null && padrao != doTor && padrao !in redesSemInternet)
+        if (!torSemRede || padrao == null) return
+        val falta = ultimoRecomecoDeRede + 30_000 - System.currentTimeMillis()
+        if (falta > 0) {
+            agendarAvaliacaoDeRede(falta)
+            return
+        }
+        ultimoRecomecoDeRede = System.currentTimeMillis()
+        redeDoTor = padrao
+        FiltroSocks.perdoarFalhas(30_000)
+        val r = t.redeMudou()
+        ResolvedorDoH.limparCache()
+        Eventos.anotar(this, "Rede trocada para ${descreverRede(padrao)}: conexões da rede Tor refeitas" + (if (r != null) " ($r)." else "."))
+    }
+
     private fun pararDeAcompanharRede() {
+        tarefaTrocaDeRede?.cancel(false)
         val v = vigiaDeRede ?: return
         try {
             conectividade().unregisterNetworkCallback(v)
         } catch (_: Exception) {
         }
         vigiaDeRede = null
-        redeAtual = null
+        redesVivas.clear()
+        redesSemInternet.clear()
+        redeDoTor = null
+        torEmEspera = false
+        Painel.semInternet = false
+        FiltroSocks.redeEmEspera = false
     }
 
     // ------------------------------------------------------------------

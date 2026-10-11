@@ -47,6 +47,14 @@
             </intent-filter>
         </activity>
 
+        <!-- Relatório para o suporte, entregue pelo menu Compartilhar do
+             Android (só leitura, só o app escolhido pela pessoa). -->
+        <provider
+            android:name=".Arquivos"
+            android:authorities="com.orbion.vpn.arquivos"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <!-- O MOTOR, num processo próprio (":vpn"). Se a tela for fechada,
              travar ou for encerrada pelo Android, a VPN continua. -->
         <service

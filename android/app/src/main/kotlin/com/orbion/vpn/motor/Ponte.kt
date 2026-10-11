@@ -106,6 +106,7 @@ object Atendente {
         "eventos" -> Eventos.ler(ctx, (args["max"] as? Number)?.toInt() ?: 150).map {
             mapOf("quando" to it.quando, "texto" to it.texto)
         }
+        "relatorio" -> Relatorio.montar(ctx)
         else -> throw IllegalArgumentException("Pedido desconhecido: $metodo")
     }
 

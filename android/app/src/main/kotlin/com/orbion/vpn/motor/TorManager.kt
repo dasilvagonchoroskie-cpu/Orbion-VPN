@@ -31,7 +31,6 @@ class TorManager(private val context: Context) {
         // outro app de Tor que esteja instalado no mesmo aparelho.
         const val SOCKS_PORT = 19050
         const val CONTROL_PORT = 19051
-        const val DNS_PORT = 15400
 
         private const val ESPERA_DIRETO_MS = 60_000L
         private const val ESPERA_SNOWFLAKE_MS = 100_000L
@@ -301,14 +300,18 @@ class TorManager(private val context: Context) {
 
     private fun montarTorrc(prefs: Preferencias, degrau: Transportes.Caminho): String {
         val dados = dataDir.absolutePath
+        // Sem DNSPort: os nomes chegam ao Tor dentro do pedido SOCKS (o túnel
+        // nunca resolve nada sozinho), então uma porta de DNS seria só mais
+        // uma porta aberta no aparelho.
+        // WarnUnsafeSocks 0: quando um app conecta direto num número (WhatsApp,
+        // apps com endereço fixo, DNS próprio do app), o Tor avisava "pode
+        // vazar DNS". Aqui não vaza — a consulta de DNS de dentro do túnel não
+        // tem como sair por fora — e o aviso só enchia o registro técnico.
         return """
             SocksPort 127.0.0.1:$SOCKS_PORT
-            DNSPort 127.0.0.1:$DNS_PORT
             ControlPort 127.0.0.1:$CONTROL_PORT
             CookieAuthentication 1
-            AutomapHostsOnResolve 1
-            AutomapHostsSuffixes .exit,.onion
-            VirtualAddrNetworkIPv4 10.192.0.0/10
+            WarnUnsafeSocks 0
             DataDirectory $dados
             PidFile ${pidFile.absolutePath}
             RunAsDaemon 0
@@ -407,6 +410,12 @@ class TorManager(private val context: Context) {
      * faz o Tor refazer tudo na hora em vez de esperar os tempos-limite.
      */
     fun redeMudou(): String? = controlar("SETCONF DisableNetwork=1", "SETCONF DisableNetwork=0", "SIGNAL ACTIVE")
+
+    /** Sem internet no aparelho: o Tor para de tentar (poupa bateria). */
+    fun pausarRede(): String? = controlar("SETCONF DisableNetwork=1")
+
+    /** A internet voltou: o Tor volta a conectar na hora. */
+    fun retomarRede(): String? = controlar("SETCONF DisableNetwork=0", "SIGNAL ACTIVE")
 
     /**
      * Avisa a escada de conexão para parar e pede ao Tor para sair.

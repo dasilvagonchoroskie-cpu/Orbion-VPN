@@ -257,7 +257,9 @@ void mostrarAviso(BuildContext context, String texto, {String? acao, VoidCallbac
     ..showSnackBar(
       SnackBar(
         content: Text(texto),
-        duration: const Duration(seconds: 5),
+        duration: Duration(seconds: acao == null ? 5 : 7),
+        // Com botão, o Flutter deixaria o aviso na tela para sempre.
+        persist: false,
         action: acao == null ? null : SnackBarAction(label: acao, textColor: Cores.ciano, onPressed: aoTocar ?? () {}),
       ),
     );

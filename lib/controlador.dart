@@ -21,6 +21,10 @@ class ControladorOrbion extends ChangeNotifier {
   /// Mensagem curta para o Painel mostrar uma vez (ex.: religamento).
   String? avisoDaTela;
 
+  /// A tela está à vista? Com o app em segundo plano, nada é consultado
+  /// (consultar o motor a cada segundo sem ninguém olhando só gasta bateria).
+  bool emPrimeiroPlano = true;
+
   Timer? _relogio;
   int _voltas = 0;
   bool _ocupado = false;
@@ -45,7 +49,25 @@ class ControladorOrbion extends ChangeNotifier {
     if (!await _talvezReligar() && config.conectarAoAbrir && status.estado == EstadoVpn.desconectado) {
       unawaited(conectar());
     }
+    if (emPrimeiroPlano) _iniciarRelogio();
+  }
+
+  void _iniciarRelogio() {
+    _relogio?.cancel();
     _relogio = Timer.periodic(const Duration(seconds: 1), (_) => _atualizar());
+  }
+
+  /// O app foi para segundo plano.
+  void pausar() {
+    emPrimeiroPlano = false;
+    _relogio?.cancel();
+    _relogio = null;
+  }
+
+  /// O app voltou para a frente.
+  void retomar() {
+    emPrimeiroPlano = true;
+    if (carregado && _relogio == null) _iniciarRelogio();
   }
 
   /// A VPN estava ligada e o Android derrubou o motor: religa sem a pessoa
@@ -155,6 +177,33 @@ class ControladorOrbion extends ChangeNotifier {
   Future<void> rotaDeDominio(String dominio, String rota) async {
     config = await Motor.rotaDeDominio(dominio, rota);
     notifyListeners();
+  }
+
+  /// Muda a rota de um app e devolve a rota que ficou valendo.
+  Future<RotaApp> rotaDeApp(String pacote, bool pelaTor) async {
+    final r = await Motor.rotaDeApp(pacote, pelaTor);
+    config = r.config;
+    notifyListeners();
+    return r.rota;
+  }
+
+  /// Apaga todas as escolhas manuais da aba Apps.
+  Future<void> voltarAppsAoAutomatico() => salvar({
+        'appsForaDoTunel': const <String>[],
+        'appsSempreNoTor': const <String>[],
+      });
+
+  /// Monta o relatório para o suporte e abre o menu Compartilhar.
+  /// Devolve null se abriu, ou o que dizer à pessoa.
+  Future<String?> enviarRelatorio() async {
+    try {
+      await Motor.compartilharRelatorio();
+      return null;
+    } on PlatformException catch (e) {
+      return e.message ?? 'Não foi possível montar o relatório agora.';
+    } catch (_) {
+      return 'Não foi possível montar o relatório agora.';
+    }
   }
 
   Future<void> dispensarAviso(String id) async {

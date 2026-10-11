@@ -13,13 +13,20 @@ enum _Vista { decisoes, eventos, tecnico }
 
 class TelaRegistros extends StatefulWidget {
   final ControladorOrbion c;
-  const TelaRegistros({super.key, required this.c});
+
+  /// A aba está à vista? (As abas ficam todas montadas; só a visível consulta.)
+  final bool visivel;
+  const TelaRegistros({super.key, required this.c, this.visivel = true});
 
   @override
   State<TelaRegistros> createState() => _TelaRegistrosState();
 }
 
 class _TelaRegistrosState extends State<TelaRegistros> {
+  /// Linhas copiadas no "Técnico": colar mais do que isso em conversas corta
+  /// o texto. O registro completo vai pelo "Enviar relatório".
+  static const _linhasParaCopiar = 150;
+
   _Vista _vista = _Vista.decisoes;
   bool _logDoTor = true;
   Registros _r = const Registros();
@@ -27,12 +34,25 @@ class _TelaRegistrosState extends State<TelaRegistros> {
   List<Evento> _eventos = const [];
   List<Fechamento> _fechamentos = const [];
   Timer? _relogio;
+  bool _ocupado = false;
+  bool _deNovo = false;
+  bool _enviando = false;
 
   @override
   void initState() {
     super.initState();
-    _atualizar();
-    _relogio = Timer.periodic(const Duration(seconds: 3), (_) => _atualizar());
+    if (widget.visivel) _atualizar();
+    // Sem ninguém olhando (outra aba ou app em segundo plano) não consulta
+    // nada: poupa bateria.
+    _relogio = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (widget.visivel && widget.c.emPrimeiroPlano) _atualizar();
+    });
+  }
+
+  @override
+  void didUpdateWidget(TelaRegistros antes) {
+    super.didUpdateWidget(antes);
+    if (widget.visivel && !antes.visivel) _atualizar();
   }
 
   @override
@@ -41,7 +61,21 @@ class _TelaRegistrosState extends State<TelaRegistros> {
     super.dispose();
   }
 
+  Future<void> _enviarRelatorio() async {
+    if (_enviando) return;
+    setState(() => _enviando = true);
+    final erro = await widget.c.enviarRelatorio();
+    if (!mounted) return;
+    setState(() => _enviando = false);
+    if (erro != null) mostrarAviso(context, erro);
+  }
+
   Future<void> _atualizar() async {
+    if (_ocupado) {
+      _deNovo = true; // ex.: trocou de vista no meio de uma consulta
+      return;
+    }
+    _ocupado = true;
     try {
       switch (_vista) {
         case _Vista.tecnico:
@@ -60,7 +94,14 @@ class _TelaRegistrosState extends State<TelaRegistros> {
           final r = await Motor.registros(max: 250);
           if (mounted) setState(() => _r = r);
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _ocupado = false;
+      if (_deNovo && mounted) {
+        _deNovo = false;
+        unawaited(_atualizar());
+      }
+    }
   }
 
   void _mudarVista(_Vista v) {
@@ -78,8 +119,20 @@ class _TelaRegistrosState extends State<TelaRegistros> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('REGISTROS', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 2)),
-              const SizedBox(height: 2),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text('REGISTROS', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 2)),
+                  ),
+                  TextButton.icon(
+                    onPressed: _enviando ? null : _enviarRelatorio,
+                    icon: _enviando
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.ios_share, size: 18),
+                    label: const Text('Enviar relatório'),
+                  ),
+                ],
+              ),
               const Text('O que o Orbion decidiu e o que aconteceu com a VPN', style: TextStyle(color: Cores.textoFraco)),
               const SizedBox(height: 10),
               SegmentedButton<_Vista>(
@@ -351,11 +404,19 @@ class _TelaRegistrosState extends State<TelaRegistros> {
               ),
               const Spacer(),
               IconButton(
-                tooltip: 'Copiar',
+                tooltip: 'Copiar as últimas $_linhasParaCopiar linhas',
                 icon: const Icon(Icons.copy),
                 onPressed: () async {
-                  await Clipboard.setData(ClipboardData(text: (_logDoTor ? _log.tor : _log.tunel).join('\n')));
-                  if (mounted) mostrarAviso(context, 'Registro copiado.');
+                  final todas = _logDoTor ? _log.tor : _log.tunel;
+                  final ultimas = todas.length > _linhasParaCopiar ? todas.sublist(todas.length - _linhasParaCopiar) : todas;
+                  await Clipboard.setData(ClipboardData(text: ultimas.join('\n')));
+                  if (!mounted) return;
+                  mostrarAviso(
+                    context,
+                    'Copiadas as últimas ${ultimas.length} linhas. Para mandar tudo ao suporte, use "Enviar relatório".',
+                    acao: 'Enviar',
+                    aoTocar: _enviarRelatorio,
+                  );
                 },
               ),
             ],

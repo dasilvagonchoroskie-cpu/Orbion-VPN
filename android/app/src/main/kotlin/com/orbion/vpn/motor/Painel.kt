@@ -39,6 +39,8 @@ object Painel {
     @Volatile var aplicandoRotas: Boolean = false
     /** O serviço da VPN existe neste momento. */
     @Volatile var servicoAtivo: Boolean = false
+    /** Conectado, mas o aparelho está sem internet (Tor em espera). */
+    @Volatile var semInternet: Boolean = false
     /** Informações que só o serviço sabe. */
     @Volatile var vpnSempreAtiva: Boolean = false
     @Volatile var bloqueioSemVpn: Boolean = false
@@ -92,6 +94,7 @@ object Painel {
         velocidadeRecebimento = 0L
         appsForaNaSessao = emptySet()
         aplicandoRotas = false
+        semInternet = false
         quedasDoTor = 0
     }
 
@@ -112,6 +115,7 @@ object Painel {
         "appsForaNaSessao" to appsForaNaSessao.toList(),
         "aplicandoRotas" to aplicandoRotas,
         "servicoAtivo" to servicoAtivo,
+        "semInternet" to semInternet,
         "vpnSempreAtiva" to vpnSempreAtiva,
         "bloqueioSemVpn" to bloqueioSemVpn,
         "tipoPrimeiroPlano" to tipoPrimeiroPlano,

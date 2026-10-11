@@ -1,4 +1,4 @@
-# Orbion VPN — v6.1 (Flutter)
+# Orbion VPN — v6.1.1 (Flutter)
 
 App Android de privacidade da **Fortaleza Digital Security**: o tráfego do
 celular passa pela rede Tor, com **rota inteligente** (bancos, governo,
@@ -20,12 +20,13 @@ lib/  (Flutter/Dart)                         android/app/src/main/kotlin/com/orb
 └─ telas/                                    ├─ RotaInteligente.kt  (categorias de apps e sites)
    ├─ painel.dart                            ├─ FiltroSocks.kt      (rastreadores / por fora / disjuntor / Tor)
    ├─ apps.dart     (rota de cada app)       ├─ TorManager.kt       (Tor + escada de contorno)
-   ├─ registros.dart (decisões, eventos)     ├─ Transportes.kt      (direto → Snowflake → obfs4)
-   └─ config.dart                            ├─ TunelHev.kt         (pacotes → SOCKS)
-android/.../MainActivity.kt                  ├─ ResolvedorDoH.kt    (DNS criptografado do que vai por fora)
-  (canal "orbion/motor" → PonteCliente.kt)   ├─ Fabricantes.kt      (ajustes de bateria de cada marca)
-                                             ├─ Diagnostico.kt      (o que pode derrubar o app)
-                                             ├─ Eventos.kt          (diário + por que o Android fechou o app)
+   ├─ registros.dart (decisões, eventos,     ├─ Transportes.kt      (direto → Snowflake → obfs4)
+   │                  enviar relatório)       ├─ TunelHev.kt         (pacotes → SOCKS)
+   └─ config.dart                            ├─ ResolvedorDoH.kt    (DNS criptografado do que vai por fora)
+android/.../MainActivity.kt                  ├─ Fabricantes.kt      (ajustes de bateria de cada marca)
+  (canal "orbion/motor" → PonteCliente.kt)   ├─ Diagnostico.kt      (o que pode derrubar o app)
+android/.../Arquivos.kt                      ├─ Eventos.kt          (diário + por que o Android fechou o app)
+  (entrega o relatório ao app escolhido)     ├─ Relatorio.kt        (relatório para o suporte, sem sites)
                                              ├─ Vigia.kt            (religa a cada 15 min se precisar)
                                              └─ Preferencias.kt / Painel.kt / BootReceiver.kt / Json.kt
 ```

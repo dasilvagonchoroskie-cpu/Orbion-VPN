@@ -51,7 +51,14 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _c.voltouParaFrente();
+    if (state == AppLifecycleState.resumed) {
+      _c.retomar();
+      _c.voltouParaFrente();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _c.pausar();
+    }
   }
 
   @override
@@ -66,9 +73,9 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final telas = [
-      TelaPainel(c: _c, irPara: _irPara),
+      TelaPainel(c: _c, irPara: _irPara, visivel: _aba == 0),
       TelaApps(c: _c, irPara: _irPara),
-      TelaRegistros(c: _c),
+      TelaRegistros(c: _c, visivel: _aba == 2),
       TelaConfig(c: _c, irPara: _irPara),
     ];
     return Scaffold(

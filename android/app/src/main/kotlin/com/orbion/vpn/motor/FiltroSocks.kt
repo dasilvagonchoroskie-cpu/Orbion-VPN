@@ -67,6 +67,27 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
 
         val disjuntor = Disjuntor()
 
+        /**
+         * O aparelho está sem internet (o Tor ficou em espera). As conexões
+         * pela rede Tor falham na hora, em vez de prender o app por 25 s, e
+         * nada conta como "recusou o Tor": a culpa não é do destino.
+         */
+        @Volatile var redeEmEspera = false
+
+        /** Até quando as falhas pelo Tor não contam (a rede caiu, voltou ou trocou). */
+        @Volatile private var semCulpaAte = 0L
+
+        /**
+         * A rede do aparelho mudou: por um tempo, falhas pelo Tor não pausam
+         * destinos nem desviam sites. Na 6.1.0, quedas de rede faziam sites
+         * normais serem desviados para fora do Tor como se recusassem a rede.
+         */
+        fun perdoarFalhas(ms: Long) {
+            semCulpaAte = maxOf(semCulpaAte, System.currentTimeMillis() + ms)
+        }
+
+        private fun falhaConta(): Boolean = !redeEmEspera && System.currentTimeMillis() >= semCulpaAte
+
         /** Sites desviados sozinhos nesta sessão: domínio-base → quando. */
         private val desviadosAuto = ConcurrentHashMap<String, Long>()
 
@@ -98,6 +119,8 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
             ultimos.clear()
             desviadosAuto.clear()
             disjuntor.limpar()
+            redeEmEspera = false
+            semCulpaAte = 0L
         }
 
         fun contagem(): Map<String, Long> = mapOf(
@@ -341,6 +364,12 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
                 return
             }
 
+            // Sem internet no aparelho: responde na hora "rede inalcançável".
+            if (redeEmEspera) {
+                responder(saida, 3)
+                return
+            }
+
             // 4. Pela rede Tor.
             registrar(rotulo, Destino.TOR, null)
             val tor = Socket()
@@ -363,7 +392,7 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
             try {
                 torIn.readFully(resp)
             } catch (e: SocketTimeoutException) {
-                disjuntor.falhou(chave, System.currentTimeMillis())
+                falhaPeloTor(chave)
                 responder(saida, 4)
                 return
             }
@@ -376,7 +405,7 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
             if (resto.isNotEmpty()) torIn.readFully(resto)
             if (resp[1].toInt() != 0) {
                 // A saída do Tor não alcançou o destino (recusado, inalcançável...).
-                disjuntor.falhou(chave, System.currentTimeMillis())
+                falhaPeloTor(chave)
                 try {
                     saida.write(resp); saida.write(resto); saida.flush()
                 } catch (_: Exception) {
@@ -391,13 +420,18 @@ class FiltroSocks(private val context: Context, private val portaDoTor: Int) {
                 // O app falou, o servidor fechou sem dizer nada: é assim que
                 // muitos serviços recusam quem chega pela rede Tor.
                 doCliente > 0 && System.currentTimeMillis() - inicio < RECUSA_SILENCIOSA_MS ->
-                    disjuntor.falhou(chave, System.currentTimeMillis())
+                    falhaPeloTor(chave)
             }
         } catch (_: Exception) {
         } finally {
             fechar(cliente)
             remoto?.let { fechar(it) }
         }
+    }
+
+    /** Uma falha pelo Tor só conta para o disjuntor se a rede do aparelho estava normal. */
+    private fun falhaPeloTor(chave: String) {
+        if (falhaConta()) disjuntor.falhou(chave, System.currentTimeMillis())
     }
 
     /** Bytes nos dois sentidos até um lado fechar ou ficar 5 min parado. Devolve (do app, do servidor). */

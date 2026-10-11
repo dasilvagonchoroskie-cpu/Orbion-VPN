@@ -70,10 +70,11 @@ class Motor {
 
   static Future<ResumoRotas> rotas() async => ResumoRotas.deMapa(_mapa(await _chamar<Object>('rotas')));
 
-  /// Manda um app pela rede Tor (true) ou por fora dela (false).
-  static Future<String> rotaDeApp(String pacote, bool pelaTor) async {
+  /// Manda um app pela rede Tor (true) ou por fora dela (false). Devolve a
+  /// rota que ficou valendo e a configuração já atualizada.
+  static Future<({RotaApp rota, Config config})> rotaDeApp(String pacote, bool pelaTor) async {
     final m = _mapa(await _chamar<Object>('rotaDeApp', {'pacote': pacote, 'pelaTor': pelaTor}));
-    return '${m['rota'] ?? 'TOR'}';
+    return (rota: rotaAppDeTexto(m['rota']), config: Config.deMapa(_mapa(m['config'])));
   }
 
   /// rota: 'direto' (sempre por fora), 'tor' (sempre pelo Tor) ou 'padrao'.
@@ -82,6 +83,9 @@ class Motor {
 
   static Future<List<Evento>> eventos({int max = 150}) async =>
       _lista(await _chamar<Object>('eventos', {'max': max})).map((e) => Evento.deMapa(_mapa(e))).toList();
+
+  /// Monta o relatório para o suporte e abre o menu Compartilhar do Android.
+  static Future<void> compartilharRelatorio() => _chamar('compartilharRelatorio');
 
   static Future<List<Fechamento>> fechamentos() async =>
       _lista(await _chamar<Object>('fechamentos')).map((e) => Fechamento.deMapa(_mapa(e))).toList();
@@ -141,6 +145,7 @@ class StatusVpn {
   final List<String> appsForaNaSessao;
   final bool aplicandoRotas;
   final bool servicoAtivo;
+  final bool semInternet;
   final bool estavaLigada;
   final bool vpnSempreAtiva;
   final bool bloqueioSemVpn;
@@ -165,6 +170,7 @@ class StatusVpn {
     this.appsForaNaSessao = const [],
     this.aplicandoRotas = false,
     this.servicoAtivo = false,
+    this.semInternet = false,
     this.estavaLigada = false,
     this.vpnSempreAtiva = false,
     this.bloqueioSemVpn = false,
@@ -190,6 +196,7 @@ class StatusVpn {
         appsForaNaSessao: _textos(m['appsForaNaSessao']),
         aplicandoRotas: _bool(m['aplicandoRotas']),
         servicoAtivo: _bool(m['servicoAtivo']),
+        semInternet: _bool(m['semInternet']),
         estavaLigada: _bool(m['estavaLigada']),
         vpnSempreAtiva: _bool(m['vpnSempreAtiva']),
         bloqueioSemVpn: _bool(m['bloqueioSemVpn']),
@@ -281,18 +288,25 @@ class AppRota {
   final bool sistema;
   final RotaApp rota;
   final String? categoria;
-  const AppRota(this.pacote, this.nome, this.sistema, this.rota, this.categoria);
+
+  /// Código da categoria da rota inteligente (bancos, mensageiros...).
+  final String? categoriaId;
+  const AppRota(this.pacote, this.nome, this.sistema, this.rota, this.categoria, {this.categoriaId});
   factory AppRota.deMapa(Map<dynamic, dynamic> m) => AppRota(
         '${m['pacote']}',
         '${m['nome']}',
         _bool(m['sistema']),
         rotaAppDeTexto(m['rota']),
         _str(m['categoria']),
+        categoriaId: _str(m['categoriaId']),
       );
 
   bool get pelaTor => rota == RotaApp.tor || rota == RotaApp.torManual;
 
-  AppRota comRota(RotaApp r) => AppRota(pacote, nome, sistema, r, categoria);
+  /// Escolha manual (a pessoa mudou a rota que o automático daria).
+  bool get manual => rota == RotaApp.torManual || rota == RotaApp.foraManual;
+
+  AppRota comRota(RotaApp r) => AppRota(pacote, nome, sistema, r, categoria, categoriaId: categoriaId);
 }
 
 enum Destino { tor, direto, bloqueado, pausado }

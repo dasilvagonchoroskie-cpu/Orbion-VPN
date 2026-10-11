@@ -2,6 +2,7 @@ package com.orbion.vpn
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ClipData
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
@@ -26,6 +27,10 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -114,6 +119,7 @@ class MainActivity : FlutterActivity() {
             "fechamentos" -> emSegundoPlano(resultado) {
                 Eventos.fechamentos(this, 16, comRastro = true).filter { it.inesperado }.map { it.comoMapa() }
             }
+            "compartilharRelatorio" -> compartilharRelatorio(resultado)
             in DO_MOTOR -> {
                 val args = chamada.arguments
                 emSegundoPlano(resultado) { ponte.chamar(metodo, args) }
@@ -194,6 +200,45 @@ class MainActivity : FlutterActivity() {
                 r?.success(iniciarServico(reinicioPendente, origemPendente))
             } else {
                 r?.success(false)
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Relatório para o suporte (arquivo, pelo menu Compartilhar)
+    // ------------------------------------------------------------------
+
+    private fun compartilharRelatorio(resultado: MethodChannel.Result) {
+        fundo.execute {
+            try {
+                val texto = ponte.chamar("relatorio", null) as? String ?: "Relatório indisponível."
+                val pasta = Arquivos.pasta(this)
+                // Relatórios antigos não ficam guardados.
+                val ontem = System.currentTimeMillis() - 24 * 3600_000L
+                pasta.listFiles()?.forEach { if (it.lastModified() < ontem) it.delete() }
+                val nome = "Orbion-relatorio-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date()) + ".txt"
+                File(pasta, nome).writeText(texto)
+                principal.post {
+                    try {
+                        val uri = Arquivos.uri(nome)
+                        val envio = Intent(Intent.ACTION_SEND)
+                            .setType("text/plain")
+                            .putExtra(Intent.EXTRA_STREAM, uri)
+                            .putExtra(Intent.EXTRA_SUBJECT, "Relatório do Orbion VPN")
+                            .putExtra(Intent.EXTRA_TEXT, "Relatório do Orbion VPN ($nome)")
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        envio.clipData = ClipData.newRawUri(nome, uri)
+                        startActivity(
+                            Intent.createChooser(envio, "Enviar o relatório do Orbion")
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                        )
+                        resultado.success(true)
+                    } catch (e: Exception) {
+                        resultado.error("relatorio", "Não foi possível abrir o menu de compartilhar: ${e.message}", null)
+                    }
+                }
+            } catch (e: Exception) {
+                principal.post { resultado.error("relatorio", "Não foi possível montar o relatório: ${e.message}", null) }
             }
         }
     }

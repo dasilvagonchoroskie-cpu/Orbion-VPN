@@ -140,9 +140,11 @@ object TunelHev {
               tcp-read-write-timeout: 300000
               udp-read-write-timeout: 60000
               log-file: ${logFile(context).absolutePath}
-              # 'info' dá uma linha por conexão: é o que a detecção de apps
-              # bloqueados e a aba Registros leem.
-              log-level: info
+              # 'warn': só problemas. ('info' gravava no disco uma linha por
+              # conexão, com o site — gasto de bateria e histórico de
+              # navegação guardado à toa. As decisões por site ficam só na
+              # memória, na aba Registros.)
+              log-level: warn
         """.trimIndent()
         val f = File(context.filesDir, "hev-socks5.yaml")
         f.writeText(yaml + "\n")

@@ -81,6 +81,37 @@ String textoDaRota(AppRota a) => switch (a.rota) {
       RotaApp.foraAutomatico => 'Por fora do Tor  •  ${a.categoria ?? 'automático'}',
     };
 
+/// Serviços do Google que entregam as notificações de todos os apps.
+const Set<String> servicosDoGoogle = {
+  'com.google.android.gms',
+  'com.google.android.gsf',
+  'com.android.vending',
+};
+
+/// Pergunta antes de mandar o app pela rede Tor? (null = muda direto)
+/// Só nos casos em que algo importante quebra sem a pessoa perceber.
+String? avisoAoMandarPeloTor(AppRota a) {
+  if (servicosDoGoogle.contains(a.pacote)) {
+    return 'Os serviços do Google entregam as notificações de quase todos os apps (WhatsApp, banco, e-mail...). '
+        'Pela rede Tor elas podem atrasar ou deixar de chegar, e a Play Store pode falhar ao baixar e atualizar apps.\n\n'
+        'O recomendado é deixar por fora: o Google já sabe quem é você pela conta do celular, então o Tor esconde pouco aqui.';
+  }
+  if (a.categoriaId == 'mensageiros') {
+    return 'Chamadas de voz e de vídeo costumam não completar pela rede Tor, e as mensagens podem atrasar.\n\n'
+        'O recomendado é deixar por fora: as conversas continuam protegidas pela criptografia do próprio app.';
+  }
+  return null;
+}
+
+/// O que dizer depois de mudar a rota de um app.
+String textoDaMudancaDeRota(AppRota a) {
+  if (!a.pelaTor) return '${a.nome} agora vai por fora do Tor.';
+  if (a.categoriaId == 'bancos' || a.categoriaId == 'governo') {
+    return '${a.nome} agora vai pela rede Tor. Se ele parar de abrir, é só desligar a chave de novo.';
+  }
+  return '${a.nome} agora vai pela rede Tor.';
+}
+
 final RegExp _dominioValido = RegExp(r'^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)+$');
 
 /// Limpa o endereço digitado ("https://www.Banco.com.br/x" → "banco.com.br").

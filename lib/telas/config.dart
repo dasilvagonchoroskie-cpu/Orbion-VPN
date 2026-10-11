@@ -26,6 +26,7 @@ class _TelaConfigState extends State<TelaConfig> {
   double? _rotacaoArrastando;
   int _ultimoRetorno = 0;
   bool _mostrarEmOrdem = false;
+  bool _enviandoRelatorio = false;
   final Set<String> _categoriasAbertas = {};
 
   ControladorOrbion get c => widget.c;
@@ -767,7 +768,8 @@ class _TelaConfigState extends State<TelaConfig> {
           explicacao: 'Quando um aplicativo pergunta o endereço de um site, o Orbion responde na hora com um número interno, sem consultar ninguém. '
               'O NOME do site segue pela rede Tor, e quem descobre o endereço de verdade é a saída do Tor — o mesmo princípio do SOCKS4a.\n\n'
               'Por isso não existe escolha de servidor de DNS aqui: escolher um servidor externo seria justamente entregar a lista dos sites que você visita. '
-              'Só os sites desviados pela rota inteligente são consultados fora do Tor, e por DNS criptografado.',
+              'Só os sites desviados pela rota inteligente são consultados fora do Tor, por DNS criptografado '
+              '(se ele falhar, pelo DNS da própria rede — e apenas para esses sites, que já vão por fora).',
         ),
       ];
 
@@ -788,13 +790,40 @@ class _TelaConfigState extends State<TelaConfig> {
                 if (_info.marca.isNotEmpty) _linhaSobre('Ajustes para', _info.marca),
                 _linhaSobre('Android', _info.android),
                 _linhaSobre('Arquitetura', _info.abi),
-                const SizedBox(height: 10),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _enviandoRelatorio ? null : _enviarRelatorio,
+                    icon: _enviandoRelatorio
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.ios_share, size: 18),
+                    label: const Text('Enviar relatório para o suporte'),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Um arquivo com o estado da VPN, os eventos e os registros técnicos, para enviar pelo WhatsApp ou e-mail. '
+                    'Não leva os sites que você visita, as suas listas de sites nem as suas bridges.',
+                    style: TextStyle(color: Cores.textoFraco, fontSize: 12, height: 1.35),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 const Text('Fortaleza Digital Security', style: TextStyle(color: Cores.ciano, fontWeight: FontWeight.w700)),
               ],
             ),
           ),
         ),
       ];
+
+  Future<void> _enviarRelatorio() async {
+    setState(() => _enviandoRelatorio = true);
+    final erro = await c.enviarRelatorio();
+    if (!mounted) return;
+    setState(() => _enviandoRelatorio = false);
+    if (erro != null) mostrarAviso(context, erro);
+  }
 
   Widget _linhaSobre(String a, String b) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 3),

@@ -59,6 +59,45 @@ void main() {
     expect(banco.comRota(RotaApp.torManual).pelaTor, isTrue);
   });
 
+  test('só pergunta antes de mandar pelo Tor o que quebra notificações ou chamadas', () {
+    const gms = AppRota('com.google.android.gms', 'Google Play Services', true, RotaApp.foraAutomatico, 'Google',
+        categoriaId: 'google');
+    const whats = AppRota('com.whatsapp', 'WhatsApp', false, RotaApp.foraAutomatico, 'Mensageiros e chamadas',
+        categoriaId: 'mensageiros');
+    const banco = AppRota('com.nu.production', 'Nubank', false, RotaApp.foraAutomatico, 'Bancos e pagamentos',
+        categoriaId: 'bancos');
+    const jogo = AppRota('com.exemplo.jogo', 'Jogo', false, RotaApp.foraManual, null);
+    expect(avisoAoMandarPeloTor(gms), contains('notificações'));
+    expect(avisoAoMandarPeloTor(whats), contains('Chamadas'));
+    expect(avisoAoMandarPeloTor(banco), isNull);
+    expect(avisoAoMandarPeloTor(jogo), isNull);
+    // A categoria segue junto quando a rota muda.
+    expect(whats.comRota(RotaApp.torManual).categoriaId, 'mensageiros');
+    expect(whats.comRota(RotaApp.torManual).manual, isTrue);
+    expect(textoDaMudancaDeRota(banco.comRota(RotaApp.torManual)), contains('desligar a chave'));
+    expect(textoDaMudancaDeRota(jogo.comRota(RotaApp.tor)), 'Jogo agora vai pela rede Tor.');
+    expect(textoDaMudancaDeRota(jogo), 'Jogo agora vai por fora do Tor.');
+  });
+
+  test('AppRota lê o código da categoria', () {
+    final a = AppRota.deMapa({
+      'pacote': 'com.whatsapp',
+      'nome': 'WhatsApp',
+      'sistema': false,
+      'rota': 'FORA_AUTO',
+      'categoria': 'Mensageiros e chamadas',
+      'categoriaId': 'mensageiros',
+    });
+    expect(a.categoriaId, 'mensageiros');
+    expect(a.rota, RotaApp.foraAutomatico);
+    expect(a.manual, isFalse);
+  });
+
+  test('StatusVpn lê "sem internet"', () {
+    expect(StatusVpn.deMapa({'estado': 'CONECTADO', 'semInternet': true}).semInternet, isTrue);
+    expect(StatusVpn.deMapa(const {}).semInternet, isFalse);
+  });
+
   test('StatusVpn reconhece VPN derrubada pelo sistema', () {
     final caiu = StatusVpn.deMapa({'estado': 'DESCONECTADO', 'estavaLigada': true, 'servicoAtivo': false});
     expect(caiu.derrubadaPeloSistema, isTrue);

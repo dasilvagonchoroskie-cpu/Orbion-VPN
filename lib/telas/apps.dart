@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../controlador.dart';
 import '../motor.dart';
@@ -24,6 +25,9 @@ class _TelaAppsState extends State<TelaApps> {
   List<AppRota> _apps = [];
   final Map<String, Uint8List> _icones = {};
   final Set<String> _pedindoIcone = {};
+
+  /// Apps com a rota sendo trocada agora (pacote → rota pedida).
+  final Map<String, bool> _mudando = {};
   bool _carregando = true;
   bool _mostrarSistema = false;
   String _busca = '';
@@ -65,29 +69,70 @@ class _TelaAppsState extends State<TelaApps> {
     }).catchError((_) {});
   }
 
+  /// A chave muda na hora (sem pergunta) e o aviso embaixo traz "Desfazer".
+  /// Só pergunta antes nos casos que quebram algo importante sem a pessoa
+  /// perceber: notificações (serviços do Google) e chamadas (mensageiros).
   Future<void> _alternar(AppRota app, bool pelaTor) async {
-    final ok = await confirmar(
-      context,
-      titulo: pelaTor ? 'Mandar ${app.nome} pela rede Tor?' : 'Mandar ${app.nome} por fora do Tor?',
-      texto: pelaTor
-          ? 'Esse aplicativo passa a usar a rede Tor.\n\nSe ele recusar conexões do Tor (bancos, gov.br, WhatsApp e redes sociais costumam recusar), pode parar de funcionar.'
-          : 'Esse aplicativo passa a usar a internet normal, sem o Tor: o serviço dele vê o seu IP real. Os dados continuam protegidos pela criptografia do próprio app.\n\nOs demais continuam pela rede Tor.',
-      sim: pelaTor ? 'Pela rede Tor' : 'Por fora do Tor',
-    );
-    if (!ok) return;
+    if (_mudando.containsKey(app.pacote)) return;
+    if (pelaTor) {
+      final aviso = avisoAoMandarPeloTor(app);
+      if (aviso != null) {
+        final ok = await confirmar(
+          context,
+          titulo: 'Mandar ${app.nome} pela rede Tor?',
+          texto: aviso,
+          sim: 'Mandar pelo Tor',
+          nao: 'Deixar por fora',
+        );
+        if (!ok || !mounted) return;
+      }
+    }
+    await _aplicarRota(app, pelaTor, comDesfazer: true);
+  }
+
+  Future<void> _aplicarRota(AppRota app, bool pelaTor, {required bool comDesfazer}) async {
+    if (!mounted) return;
+    setState(() => _mudando[app.pacote] = pelaTor);
     try {
-      final rota = await Motor.rotaDeApp(app.pacote, pelaTor);
+      final rota = await c.rotaDeApp(app.pacote, pelaTor);
       if (!mounted) return;
+      final nova = app.comRota(rota);
       setState(() {
         final i = _apps.indexWhere((a) => a.pacote == app.pacote);
-        if (i >= 0) _apps[i] = app.comRota(rotaAppDeTexto(rota));
+        if (i >= 0) _apps[i] = nova;
       });
-      await c.salvar(const {}); // recarrega a configuração
-      if (mounted && c.status.ligada) {
-        mostrarAviso(context, 'Aplicado. A internet pode piscar por 1 segundo.');
-      }
+      mostrarAviso(
+        context,
+        textoDaMudancaDeRota(nova),
+        acao: comDesfazer ? 'Desfazer' : null,
+        aoTocar: comDesfazer ? () => _aplicarRota(nova, !pelaTor, comDesfazer: false) : null,
+      );
     } catch (e) {
-      if (mounted) mostrarAviso(context, 'Não foi possível mudar a rota: $e');
+      if (mounted) mostrarAviso(context, 'Não foi possível mudar a rota: ${_motivo(e)}');
+    } finally {
+      if (mounted) setState(() => _mudando.remove(app.pacote));
+    }
+  }
+
+  String _motivo(Object e) => e is PlatformException ? (e.message ?? e.code) : '$e';
+
+  Future<void> _voltarTudoAoAutomatico(int escolhas) async {
+    final inteligente = c.config.rotaInteligente;
+    final ok = await confirmar(
+      context,
+      titulo: 'Voltar todos os apps ao automático?',
+      texto: 'As suas $escolhas escolha(s) na aba Apps serão apagadas.\n\n'
+          '${inteligente ? 'Cada app volta para a rota da rota inteligente: bancos, governo, mensageiros e os outros que recusam o Tor vão por fora; o resto passa pela rede Tor.' : 'Todos os apps voltam a passar pela rede Tor.'}',
+      sim: 'Voltar ao automático',
+    );
+    if (!ok || !mounted) return;
+    try {
+      await c.voltarAppsAoAutomatico();
+      if (!mounted) return;
+      mostrarAviso(context, 'Pronto: todos os apps estão na rota automática.');
+      await _carregar();
+    } catch (e) {
+      if (mounted) mostrarAviso(context, 'Não foi possível voltar ao automático: ${_motivo(e)}');
     }
   }
 
@@ -199,13 +244,17 @@ class _TelaAppsState extends State<TelaApps> {
                         _pedirIcones(filtrados.skip(i).take(20).map((a) => a.pacote).toList());
                         final icone = _icones[app.pacote];
                         final corRota = app.pelaTor ? Cores.verde : Cores.amarelo;
+                        final mudando = _mudando[app.pacote];
                         return ListTile(
                           leading: icone != null
                               ? Image.memory(icone, width: 40, height: 40, gaplessPlayback: true)
                               : const SizedBox(width: 40, height: 40, child: Icon(Icons.android, color: Cores.textoFraco)),
                           title: Text(app.nome, maxLines: 1, overflow: TextOverflow.ellipsis),
                           subtitle: Text(textoDaRota(app), style: TextStyle(color: corRota, fontSize: 12.5)),
-                          trailing: Switch(value: app.pelaTor, onChanged: (v) => _alternar(app, v)),
+                          trailing: Switch(
+                            value: mudando ?? app.pelaTor,
+                            onChanged: mudando != null ? null : (v) => _alternar(app, v),
+                          ),
                         );
                       },
                       childCount: filtrados.length,
@@ -222,6 +271,7 @@ class _TelaAppsState extends State<TelaApps> {
 
   Widget _cartaoResumo(int quantosFora) {
     final inteligente = c.config.rotaInteligente;
+    final escolhas = c.config.appsForaDoTunel.length + c.config.appsSempreNoTor.length;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -249,9 +299,21 @@ class _TelaAppsState extends State<TelaApps> {
                   : 'Só os apps que você escolher vão por fora. Todo o resto passa pela rede Tor — bancos, gov.br e WhatsApp costumam não funcionar assim.',
               style: const TextStyle(color: Cores.textoFraco, height: 1.4, fontSize: 13),
             ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(onPressed: () => widget.irPara(3), child: const Text('Ajustar categorias')),
+            SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 4,
+                children: [
+                  if (escolhas > 0)
+                    TextButton.icon(
+                      onPressed: () => _voltarTudoAoAutomatico(escolhas),
+                      icon: const Icon(Icons.restart_alt, size: 18),
+                      label: Text('Voltar ao automático ($escolhas)'),
+                    ),
+                  TextButton(onPressed: () => widget.irPara(3), child: const Text('Ajustar categorias')),
+                ],
+              ),
             ),
           ],
         ),

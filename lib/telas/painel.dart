@@ -11,7 +11,10 @@ import '../widgets/comuns.dart';
 class TelaPainel extends StatefulWidget {
   final ControladorOrbion c;
   final ValueChanged<int> irPara;
-  const TelaPainel({super.key, required this.c, required this.irPara});
+
+  /// A aba está à vista? (As abas ficam todas montadas.)
+  final bool visivel;
+  const TelaPainel({super.key, required this.c, required this.irPara, this.visivel = true});
 
   @override
   State<TelaPainel> createState() => _TelaPainelState();
@@ -19,16 +22,43 @@ class TelaPainel extends StatefulWidget {
 
 class _TelaPainelState extends State<TelaPainel> with SingleTickerProviderStateMixin {
   late final AnimationController _pulso =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1600))..repeat();
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 1600));
   bool _agindo = false;
   String? _ultimoAvisoIdentidade;
 
   ControladorOrbion get c => widget.c;
 
   @override
+  void initState() {
+    super.initState();
+    c.addListener(_ajustarPulso);
+    _ajustarPulso();
+  }
+
+  @override
+  void didUpdateWidget(TelaPainel antes) {
+    super.didUpdateWidget(antes);
+    if (antes.visivel != widget.visivel) _ajustarPulso();
+  }
+
+  @override
   void dispose() {
+    c.removeListener(_ajustarPulso);
     _pulso.dispose();
     super.dispose();
+  }
+
+  /// O anel só se mexe conectando ou com o tráfego bloqueado, e só com a aba
+  /// à vista. Antes ele animava sem parar (até conectado, até em outra aba),
+  /// redesenhando um brilho desfocado 60 vezes por segundo: gasto de bateria.
+  void _ajustarPulso() {
+    final e = c.status.estado;
+    final animar = widget.visivel && (e == EstadoVpn.conectando || e == EstadoVpn.bloqueado);
+    if (animar && !_pulso.isAnimating) {
+      _pulso.repeat();
+    } else if (!animar && _pulso.isAnimating) {
+      _pulso.stop();
+    }
   }
 
   Color _corDoEstado(EstadoVpn e) => switch (e) {
@@ -296,6 +326,15 @@ class _TelaPainelState extends State<TelaPainel> with SingleTickerProviderStateM
         aoTocarBotao: () => widget.irPara(3),
         botaoSecundario: 'Entendi',
         aoTocarSecundario: () => Motor.limparAvisos(),
+      ));
+    }
+    if (s.semInternet && (s.estado == EstadoVpn.conectado || s.estado == EstadoVpn.bloqueado)) {
+      lista.add(const CartaoAviso(
+        icone: Icons.signal_wifi_off,
+        cor: Cores.amarelo,
+        titulo: 'Sem internet no aparelho',
+        texto: 'O Wi-Fi e os dados móveis estão sem conexão agora. A proteção continua ligada e a rede Tor fica em espera '
+            '(poupa bateria) — volta sozinha quando a internet voltar.',
       ));
     }
     if (s.estado == EstadoVpn.bloqueado) {
