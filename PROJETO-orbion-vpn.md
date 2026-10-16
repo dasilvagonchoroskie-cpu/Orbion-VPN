@@ -347,6 +347,25 @@ Relatório de 11/10/2026 15:12 (6.1.2), com dados móveis fracos em casa:
 - A esteira mostra no resumo os avisos do `flutter analyze` e o total de
   testes (a sessão do Claude não consegue baixar os registros completos).
 
+## 6.1 Central de Licenças (desde a 6.3.0, 16/10/2026)
+
+O Orbion passou a usar o pacote `fortaleza_licenca` (Central de Licenças),
+igual ao Meu Frete:
+
+- A **versão da Play Store sai sem trava** (lá quem cobra é a loja). O **APK de
+  venda direta** `Orbion-VPN-vX-venda-direta-arm64-v8a.apk` sai com o portão,
+  compilado com `--dart-define=LICENCA_CENTRAL=true`.
+- `main.dart`: `const licencaCentral` + `PortaoLicenca` em volta de `Inicio`.
+- `MainActivity.kt`: canal `fortaleza/licenca` (ANDROID_ID + modelo), ao lado
+  do canal `orbion/motor`.
+- Apelido no servidor: `orbion` (pré-cadastrado). Na Central › Apps ficam o
+  WhatsApp de venda, o preço e os dias de teste grátis.
+- **A venda direta tem que sair sempre com a mesma chave do Orbion** (segredos
+  `ORBION_KEYSTORE_BASE64` / `ORBION_KEYSTORE_SENHA`), senão o código do
+  aparelho muda e o cliente perde a liberação ao atualizar.
+- Foi integrado pelo integrador automático
+  (`fortaleza-central-licencas/ferramentas/integrar-licenca.py`).
+
 ## 7. Status
 
 - v6.1.0 testada pelo Evandro no celular (11/10/2026): não travou nem fechou.
