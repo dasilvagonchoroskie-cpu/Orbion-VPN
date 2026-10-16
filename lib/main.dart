@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:fortaleza_licenca/fortaleza_licenca.dart';
 
 import 'controlador.dart';
 import 'legal.dart';
@@ -8,6 +9,20 @@ import 'telas/apps.dart';
 import 'telas/config.dart';
 import 'telas/painel.dart';
 import 'telas/registros.dart';
+
+/// Versão mostrada na Central, ao lado da licença deste aparelho.
+const versaoOrbion = '6.3.0';
+
+/// Trava pela Central de Licenças. Entra só no APK de venda direta
+/// (compilado com --dart-define=LICENCA_CENTRAL=true). A versão da Play
+/// Store sai sem a trava: lá quem cobra é a própria loja.
+const licencaCentral = bool.fromEnvironment('LICENCA_CENTRAL', defaultValue: false);
+
+final _licenca = ControleLicenca(const ConfiguracaoLicenca(
+  appId: 'orbion',
+  nomeApp: 'Orbion VPN',
+  versaoApp: versaoOrbion,
+));
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,7 +44,11 @@ class OrbionApp extends StatelessWidget {
         title: 'Orbion VPN',
         debugShowCheckedModeBanner: false,
         theme: temaOrbion(),
-        home: const Inicio(),
+        // No APK de venda direta, o Orbion só abre no aparelho liberado pela
+        // Central de Licenças. Fora isso, o portão mostra "Pedir liberação".
+        home: licencaCentral
+            ? PortaoLicenca(controle: _licenca, icone: Icons.shield, child: const Inicio())
+            : const Inicio(),
       );
 }
 

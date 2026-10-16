@@ -1,17 +1,23 @@
 name: orbion_vpn
 description: "Orbion VPN — rede Tor com Kill Switch, interface em Flutter."
 publish_to: 'none'
-version: 6.2.0+74
+version: 6.3.0+75
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
 
-# Sem pacotes de terceiros de propósito: a interface só conversa com o motor
-# nativo pelo canal "orbion/motor". Menos dependência, menos coisa para
-# quebrar numa atualização do Flutter.
+# O motor nativo fala pelo canal "orbion/motor". O único pacote é a licença
+# da Fortaleza Digital Security (Central de Licenças), usada só no APK de
+# venda direta.
 dependencies:
   flutter:
     sdk: flutter
+  fortaleza_licenca:
+    git:
+      url: https://github.com/dasilvagonchoroskie-cpu/fortaleza-central-licencas.git
+      path: pacote/fortaleza_licenca
+      # licenca-v1 (commit fixo do pacote)
+      ref: 8d208fbadafd65a681bd81473a4b49619b041b4c
 
 dev_dependencies:
   flutter_test:

@@ -99,6 +99,22 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CANAL)
             .setMethodCallHandler { chamada, resultado -> atender(chamada, resultado) }
+        // Central de Licenças: entrega o código do aparelho (ANDROID_ID) e o
+        // modelo. Só é usado no APK de venda direta (LICENCA_CENTRAL=true).
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "fortaleza/licenca")
+            .setMethodCallHandler { chamada, resultado ->
+                when (chamada.method) {
+                    "idDoAparelho" -> resultado.success(
+                        try {
+                            Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+                        } catch (e: Exception) {
+                            null
+                        } ?: "",
+                    )
+                    "modelo" -> resultado.success("${Build.MANUFACTURER} ${Build.MODEL}".trim())
+                    else -> resultado.notImplemented()
+                }
+            }
     }
 
     override fun onDestroy() {
