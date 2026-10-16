@@ -182,6 +182,22 @@ jobs:
           sha256sum saida/*.apk > saida/SHA256SUMS.txt
           cat saida/SHA256SUMS.txt
 
+      - name: Conferir que é a chave do Orbion (senão não publica)
+        if: env.ASSINATURA == 'producao'
+        run: |
+          # A trava da Central prende a licença à assinatura do APK: todo
+          # Orbion tem que sair com ESTA chave, senão o cliente perderia a
+          # liberação ao atualizar.
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          ESPERADA="173bb0bab88850475b71d0b8d3745233689acddd5598af3338219f24744cd663"
+          for apk in saida/*.apk; do
+            dig=$("$APKSIGNER" verify --print-certs "$apk" | grep -i "SHA-256 digest" | head -1 | grep -oiE "[0-9a-f]{64}" | tr 'A-F' 'a-f')
+            if [ "$dig" != "$ESPERADA" ]; then
+              echo "::error title=chave::$apk NAO esta com a chave do Orbion (veio $dig)"; exit 1
+            fi
+          done
+          echo "::notice title=chave::Todos assinados com a chave do Orbion (173bb0ba...)"
+
       - name: Conferir o manifesto (processo da VPN e regras da Play Store)
         run: |
           AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
