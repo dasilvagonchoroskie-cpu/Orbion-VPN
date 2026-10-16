@@ -349,25 +349,44 @@ Relatório de 11/10/2026 15:12 (6.1.2), com dados móveis fracos em casa:
 
 ## 6.1 Central de Licenças (desde a 6.3.0, 16/10/2026)
 
-O Orbion passou a usar o pacote `fortaleza_licenca` (Central de Licenças),
-igual ao Meu Frete:
+O Orbion usa o pacote `fortaleza_licenca` (Central de Licenças). Decisão de
+16/10/2026: **não vai para a Play Store por enquanto** (app de VPN exige conta
+com CNPJ) — será vendido **só no site**, com a **trava sempre ligada**.
 
-- A **versão da Play Store sai sem trava** (lá quem cobra é a loja). O **APK de
-  venda direta** `Orbion-VPN-vX-venda-direta-arm64-v8a.apk` sai com o portão,
-  compilado com `--dart-define=LICENCA_CENTRAL=true`.
-- `main.dart`: `const licencaCentral` + `PortaoLicenca` em volta de `Inicio`.
+- `main.dart`: `const licencaCentral = bool.fromEnvironment('LICENCA_CENTRAL',
+  defaultValue: true)` → **todo APK já sai travado**. (Se um dia for para a
+  Play Store, basta compilar com `LICENCA_CENTRAL=false`.) `PortaoLicenca` em
+  volta de `Inicio`.
 - `MainActivity.kt`: canal `fortaleza/licenca` (ANDROID_ID + modelo), ao lado
   do canal `orbion/motor`.
 - Apelido no servidor: `orbion` (pré-cadastrado). Na Central › Apps ficam o
-  WhatsApp de venda, o preço e os dias de teste grátis.
-- **A venda direta tem que sair sempre com a mesma chave do Orbion** (segredos
-  `ORBION_KEYSTORE_BASE64` / `ORBION_KEYSTORE_SENHA`), senão o código do
-  aparelho muda e o cliente perde a liberação ao atualizar.
-- Foi integrado pelo integrador automático
+  WhatsApp de venda, o preço e os dias de teste grátis. **Não precisa atualizar
+  o APK da Central**: ela lê a lista de apps direto do servidor.
+- Integrado pelo integrador automático
   (`fortaleza-central-licencas/ferramentas/integrar-licenca.py`).
+
+### Chave de assinatura do Orbion (dedicada, criada em 16/10/2026)
+
+A trava prende a licença à assinatura do APK, então **todo Orbion tem que sair
+sempre com esta chave**:
+
+- Arquivo `orbion-release.jks` (PKCS12, RSA 4096, válida até 2056), alias
+  `orbion`, mesma senha para a chave e o arquivo. Guardado com o Evandro.
+- Impressão digital (SHA-256 do certificado):
+  `173bb0bab88850475b71d0b8d3745233689acddd5598af3338219f24744cd663`.
+- A esteira assina sozinha quando os segredos `ORBION_KEYSTORE_BASE64` e
+  `ORBION_KEYSTORE_SENHA` estiverem no GitHub; e **confere a impressão digital
+  antes de publicar** (passo "Conferir que é a chave do Orbion").
+- A primeira entrega (v6.3.0, 16/10/2026) foi assinada fora da esteira com esta
+  chave e entregue como `Orbion-VPN-v6.3.0.apk`.
 
 ## 7. Status
 
+- v6.3.0 (16/10/2026): integrada à Central de Licenças (trava sempre ligada),
+  assinada com a chave dedicada do Orbion e entregue como `Orbion-VPN-v6.3.0.apk`.
+  Pendente do Evandro: pôr os segredos `ORBION_KEYSTORE_BASE64`/`ORBION_KEYSTORE_SENHA`
+  no GitHub (aí a esteira assina sozinha) e cadastrar preço/WhatsApp/teste na
+  Central › Apps (apelido `orbion`).
 - v6.1.0 testada pelo Evandro no celular (11/10/2026): não travou nem fechou.
 - v6.1.1 instalada pelo Evandro em 11/10/2026 05:26; relatório 1 min depois
   (seção 5.4). v6.1.2 instalada às 05:46; relatório às 15:12 (seção 5.5).
