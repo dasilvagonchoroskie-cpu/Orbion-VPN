@@ -13,10 +13,10 @@ import 'telas/registros.dart';
 /// Versão mostrada na Central, ao lado da licença deste aparelho.
 const versaoOrbion = '6.3.0';
 
-/// Trava pela Central de Licenças. Entra só no APK de venda direta
-/// (compilado com --dart-define=LICENCA_CENTRAL=true). A versão da Play
-/// Store sai sem a trava: lá quem cobra é a própria loja.
-const licencaCentral = bool.fromEnvironment('LICENCA_CENTRAL', defaultValue: false);
+/// Trava pela Central de Licenças. LIGADA por padrão: o Orbion é vendido só
+/// no site, então todo APK sai travado. Se um dia ele for para a Play Store
+/// (precisa de CNPJ), é só compilar com --dart-define=LICENCA_CENTRAL=false.
+const licencaCentral = bool.fromEnvironment('LICENCA_CENTRAL', defaultValue: true);
 
 final _licenca = ControleLicenca(const ConfiguracaoLicenca(
   appId: 'orbion',
