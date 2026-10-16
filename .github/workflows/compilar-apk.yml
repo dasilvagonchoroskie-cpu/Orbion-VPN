@@ -172,11 +172,11 @@ jobs:
           # código do aparelho não muda na atualização. A trava da Central
           # entra com LICENCA_CENTRAL=true; os APKs acima (e a Play Store)
           # continuam sem trava.
-          if ! flutter build apk --release --target-platform android-arm64 --build-number=$NUMERO --dart-define=LICENCA_CENTRAL=true 2>&1 | tee build-direta.log; then
+          if ! flutter build apk --release --split-per-abi --target-platform android-arm64 --build-number=$NUMERO --dart-define=LICENCA_CENTRAL=true 2>&1 | tee build-direta.log; then
             grep -E "^e: |error:|What went wrong|FAILURE|Exception" -A3 build-direta.log | head -40 | while IFS= read -r l; do echo "::error title=venda direta::$l"; done
             exit 1
           fi
-          cp build/app/outputs/flutter-apk/app-release.apk "saida/Orbion-VPN-v${VERSAO}-venda-direta-arm64-v8a.apk"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "saida/Orbion-VPN-v${VERSAO}-venda-direta-arm64-v8a.apk"
           echo "::notice title=venda direta::Orbion-VPN-v${VERSAO}-venda-direta-arm64-v8a.apk (passa pela Central de Licenças)"
           ls -la saida
 
