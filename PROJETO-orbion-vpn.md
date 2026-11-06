@@ -415,11 +415,12 @@ ao acordar. Guardado como teste em `test/dados/tor-2026-11-06.txt`.
 - versionCode = 1000 × arquitetura + (60 + número da execução da esteira)
   (arm64-v8a = 2xxx). A 6.1.0 entregue foi 2068 (execução 8); a 6.1.1, 2072
   (execução 12); a 6.1.2, 2073 (execução 13); a 6.2.0 entregue é 2075
-  (execução 15); a 6.3.1, 2081 (execução 21).
-- APK entregue: `Orbion-VPN-v6.3.1.apk` (arm64-v8a, o dos celulares atuais),
-  SHA-256 287ad078274fdcffcc9086c757cb30cdedb8f995a8e40943deba60d54ac5de34,
-  assinado com a chave dedicada (173bb0ba…). Instala por cima da 6.3.0 sem
-  desinstalar e sem perder a liberação da Central.
+  (execução 15); a 6.3.1, 2081 (execução 21); a 6.3.2, 2082 (execução 22).
+- APK entregue: `Orbion-VPN-v6.3.2.apk` (arm64-v8a, o dos celulares atuais),
+  SHA-256 7ce9ad847baa36642d596506e6cddb78e7b54b9a39761ce98d203f607b04b233,
+  assinado com a chave dedicada (173bb0ba…). Instala por cima da 6.3.x sem
+  desinstalar e sem perder a liberação da Central. (A 6.3.1 entregue antes
+  tinha SHA-256 287ad078…5de34.)
 - A esteira mostra no resumo os avisos do `flutter analyze` e o total de
   testes (a sessão do Claude não consegue baixar os registros completos).
 
@@ -461,7 +462,9 @@ sempre com esta chave**:
 
 ## 7. Status
 
-- v6.3.2 (06/11/2026): ajustes da seção 5.7. Conferido localmente: o motor
+- v6.3.2 (06/11/2026): ajustes da seção 5.7. Esteira execução 22 (análise
+  sem avisos, 21 testes do Flutter, Tor 0.4.9.15), versionCode 2082, assinada
+  com a chave dedicada e entregue como `Orbion-VPN-v6.3.2.apk`. Conferido localmente: o motor
   Kotlin compila e passa nos 82 testes (3 novos: impressão do catálogo e
   mensagem de "sem internet"); testes do Flutter com os dois registros reais
   de 06/11 (0.4.9.14 e 0.4.9.15) sem nada em vermelho ou amarelo.
