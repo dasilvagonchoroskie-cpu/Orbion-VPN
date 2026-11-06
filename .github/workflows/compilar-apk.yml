@@ -198,6 +198,14 @@ jobs:
           done
           echo "::notice title=chave::Todos assinados com a chave do Orbion (173bb0ba...)"
 
+      - name: Produção nunca sai com o motor de reserva
+        if: env.ASSINATURA == 'producao' && env.SO_ARM64 == '1'
+        run: |
+          # O motor de reserva é um Tor mais antigo, guardado só para a esteira
+          # não parar se o site do Tor Project cair. Para cliente, não serve.
+          echo "::error title=motor::O pacote oficial do Tor não baixou: APK de produção não sai com o Tor de reserva (mais antigo)."
+          exit 1
+
       - name: Conferir o manifesto (processo da VPN e regras da Play Store)
         run: |
           AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)

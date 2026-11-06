@@ -46,6 +46,13 @@ e religamento automático se o sistema derrubar a VPN.
   pedido do Evandro: deixar 100% pronto para vender na Play Store, com
   Política de Privacidade, Termos de Uso e a parte de "não coletamos dados"
   (seção 8).
+- v6.3.0 (16/10/2026): Central de Licenças (trava sempre ligada) e chave de
+  assinatura própria do Orbion (seção 6.1). Decisão: venda só no site, sem
+  Play Store por enquanto.
+- v6.3.1 (06/11/2026): o Evandro ligou o celular de manhã e mandou o registro
+  técnico perguntando se faltava alguma atualização ou correção. O registro
+  estava saudável (seção 5.6); a 6.3.1 traz o Tor 0.4.9.15 (correções de
+  segurança) e tira o falso alarme da aba Técnico.
 
 ## 3. Decisões travadas
 
@@ -318,6 +325,28 @@ Relatório de 11/10/2026 15:12 (6.1.2), com dados móveis fracos em casa:
    falham na hora); ninguém é pausado; um site que recusa o Tor enquanto os
    outros funcionam é pausado depois de 3 falhas.
 
+### 5.6 O registro de 06/11/2026 (6.3.0) e a 6.3.1
+
+Registro técnico do Tor mandado às 08:57, depois de ligar o celular (POCO C71)
+ao acordar. Guardado como teste em `test/dados/tor-2026-11-06.txt`.
+1. Saudável: a VPN subiu às 07:33:09 pela entrada normal (DIRETO), o Tor
+   chegou a 100% em 13 s e rodou 1h22 sem nenhum `[warn]` ou `[err]`.
+2. "All current guards excluded by path restriction type 2; using an
+   additional guard" é normal: o Tor monta circuitos em paralelo e usa outro
+   nó de entrada para cada um.
+3. "Circuit build expiry summary ..." é um resumo periódico do Tor 0.4.9.14.
+   A aba Técnico pintava essa linha de vermelho porque ela contém
+   "connection_failed=0": falso alarme. Na 6.3.1 a cor vem da etiqueta do
+   próprio Tor/túnel (`[err]`/`[warn]`/`[E]`/`[W]`), as mensagens comuns ganham
+   explicação em português embaixo, e o topo diz "Nenhum erro nem aviso" (ou
+   quantos avisos/erros há).
+4. Troca de rede às 08:55:24: o vigia de rede pausou e retomou o Tor uma
+   única vez (DisableNetwork), 18 circuitos foram cortados na hora e às
+   08:55:46 o Tor já montava circuitos de novo — como projetado (seção 5.5).
+5. Atualização de segurança: o Tor 0.4.9.15 saiu em 29/10/2026 (Tor Browser
+   16.0), com correções de segurança e três novas defesas contra negação de
+   serviço. A esteira pega sozinha o pacote estável mais novo do Tor Browser.
+
 ## 6. Compilação e entrega
 
 - Esteira: `.github/workflows/compilar-apk.yml` a cada envio para `main`:
@@ -332,7 +361,8 @@ Relatório de 11/10/2026 15:12 (6.1.2), com dados móveis fracos em casa:
   e apksigner (v2+v3) com a chave abaixo; o APK assinado é entregue no chat.
 - Opcional: segredos `ORBION_KEYSTORE_BASE64` e `ORBION_KEYSTORE_SENHA`
   (alias `orbion`) fazem a esteira assinar e publicar em `apk-mais-recente`.
-- Chave: `orbion-vpn-release.jks` (PKCS12, RSA 4096, válida até 2056), DN
+- **Chave antiga, só até a 6.2.0** (desde a 6.3.0 vale a chave dedicada da
+  seção 6.1; não usar mais esta): `orbion-vpn-release.jks` (PKCS12, RSA 4096, válida até 2056), DN
   "CN=Fortaleza Digital Security, OU=Desenvolvimento, O=Fortaleza Digital
   Security, L=Goiatuba, ST=Goias, C=BR", SHA-256
   B6:40:27:BE:5A:75:5E:1A:30:CC:CF:A8:C2:56:B8:EC:D5:3A:AC:4F:BF:8F:4B:06:7F:B2:EC:5F:BD:B5:2C:3B.

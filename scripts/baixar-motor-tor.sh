@@ -53,6 +53,23 @@ declare -A ABI=( [aarch64]=arm64-v8a [armv7]=armeabi-v7a [x86_64]=x86_64 )
 declare -A ELF=( [aarch64]="ARM aarch64" [armv7]="ARM," [x86_64]="x86-64" )
 PT_CONFIG=""
 
+# Acha o primeiro arquivo que case com os nomes E seja programa (ELF) da
+# arquitetura certa. Antes valia o primeiro nome que casasse: no pacote do Tor
+# Browser 16.0 a licença docs/lyrebird.txt vinha antes do programa lyrebird,
+# o script parava e a esteira caía no motor de reserva (Tor mais antigo).
+achar_programa() {
+  local pasta="$1" elf="$2" f info
+  shift 2
+  while IFS= read -r f; do
+    info="$(file -b "$f")"
+    if [[ "$info" == *ELF* && "$info" == *"$elf"* ]]; then
+      echo "$f"
+      return 0
+    fi
+  done < <(find "$pasta" -type f \( "$@" \) | sort)
+  return 0
+}
+
 for arq in aarch64 armv7 x86_64; do
   nome="tor-expert-bundle-android-$arq-$VERSAO.tar.gz"
   curl -fsSLO "$BASE/$VERSAO/$nome"
@@ -74,16 +91,22 @@ for arq in aarch64 armv7 x86_64; do
     find "x-$arq" -path '*/docs/*' -name '*.txt' -exec cp -f {} "$OLDPWD_LICENCAS/" \;
   fi
 
-  tor="$(find "x-$arq" -type f \( -iname 'libtor.so' -o -name 'tor' \) | head -1)"
-  lyre="$(find "x-$arq" -type f \( -iname '*lyrebird*' -o -iname '*obfs4proxy*' \) ! -name '*.json' | head -1)"
-  snow="$(find "x-$arq" -type f \( -iname 'snowflake-client*' -o -iname '*snowflake*.so' \) ! -name '*.json' | head -1)"
+  tor="$(achar_programa "x-$arq" "${ELF[$arq]}" -iname 'libtor.so' -o -name 'tor')"
+  lyre="$(achar_programa "x-$arq" "${ELF[$arq]}" -iname '*lyrebird*' -o -iname '*obfs4proxy*')"
+  snow="$(achar_programa "x-$arq" "${ELF[$arq]}" -iname '*snowflake*')"
   [ -z "$PT_CONFIG" ] && PT_CONFIG="$(find "$TRAB/x-$arq" -name 'pt_config.json' | head -1)"
 
   [ -n "$tor" ] || { echo "::error::Programa do Tor não encontrado no pacote $arq."; exit 1; }
   d="$DESTINO/${ABI[$arq]}"; mkdir -p "$d"
   install -m 0755 "$tor" "$d/libtor.so"
+  # A maior versão escrita no programa é a dele (as outras são versões antigas
+  # citadas no código, como 0.2.4.19).
+  vtor="$( { strings "$d/libtor.so" || true; } | { grep -xE '0\.[0-9]+\.[0-9]+\.[0-9]+' || true; } | sort -V | tail -1)"
+  echo "::notice title=tor $arq::Tor ${vtor:-(versão não encontrada)} — ${tor#x-"$arq"/}"
   [ -n "$lyre" ] && install -m 0755 "$lyre" "$d/libobfs4proxy.so" || echo "::warning::lyrebird ausente ($arq)"
-  [ -n "$snow" ] && install -m 0755 "$snow" "$d/libsnowflake.so" || echo "::warning::snowflake ausente ($arq)"
+  # Desde o Tor Browser 16.0 o Snowflake não vem mais no pacote para Android:
+  # a esteira compila do código-fonte logo depois.
+  [ -n "$snow" ] && install -m 0755 "$snow" "$d/libsnowflake.so" || echo "snowflake não veio no pacote ($arq): vale o compilado do código-fonte"
 
   for f in "$d"/libtor.so "$d"/libobfs4proxy.so "$d"/libsnowflake.so; do
     [ -f "$f" ] || continue
