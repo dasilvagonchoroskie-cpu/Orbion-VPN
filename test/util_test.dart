@@ -176,6 +176,74 @@ void main() {
     expect(c.appsSempreNoTor, {'com.whatsapp'});
   });
 
+  test('Técnico: a gravidade vem da etiqueta, não de palavras soltas', () {
+    const resumo = 'Nov 06 07:40:22.000 [notice] Circuit build expiry summary: prefix_hops_0=0 prefix_hops_1=0 '
+        'prefix_hops_2=1 post_prefix=0 open_channel=1 other_channel=0 late_firsthop=0 completed=57 abandoned=1 '
+        'excluded=0 adaptive=1 connection_failed=0 channels_retired=0 firsthop_preserved=0 (build stages are at '
+        'measurement or circuit expiry; recovery probes may finish later)';
+    final r = lerLinhaTecnica(resumo);
+    expect(r.nivel, NivelDaLinha.normal, reason: '"connection_failed=0" não é erro');
+    expect(r.explicacao, contains('57 circuitos montados'));
+    expect(r.explicacao, isNot(contains('cortado')));
+
+    final troca = lerLinhaTecnica('Nov 06 08:55:24.000 [notice] Circuit build expiry summary: completed=4 abandoned=0 '
+        'excluded=0 adaptive=1 connection_failed=18 channels_retired=0');
+    expect(troca.explicacao, contains('18 cortados'));
+
+    final guarda = lerLinhaTecnica(
+        'Nov 06 07:33:24.000 [notice] All current guards excluded by path restriction type 2; using an additional guard.');
+    expect(guarda.nivel, NivelDaLinha.normal);
+    expect(guarda.explicacao, startsWith('Normal'));
+
+    final pronto = lerLinhaTecnica('Nov 06 07:33:22.000 [notice] Bootstrapped 100% (done): Done');
+    expect(pronto.nivel, NivelDaLinha.progresso);
+    expect(pronto.explicacao, 'Conectado à rede Tor.');
+    expect(lerLinhaTecnica('Nov 06 07:33:17.000 [notice] Bootstrapped 5% (conn): Connecting to a relay').explicacao,
+        'Conectando à rede Tor: 5%.');
+    expect(
+        lerLinhaTecnica('Nov 06 07:33:09.749 [notice] Tor 0.4.9.15 (git-8fe2745aee2c3511) running on Linux with '
+                'Libevent 2.1.13-stable, OpenSSL 3.5.9')
+            .explicacao,
+        contains('0.4.9.15'));
+    expect(
+        lerLinhaTecnica('Nov 06 08:55:24.000 [notice] DisableNetwork is set. Tor will not make or accept non-control '
+                'network connections. Shutting down all existing connections.')
+            .explicacao,
+        contains('trocar de rede'));
+
+    expect(lerLinhaTecnica('Nov 06 08:00:00.000 [warn] Problem bootstrapping. Stuck at 5% (conn): Connecting to a relay.').nivel,
+        NivelDaLinha.aviso);
+    expect(lerLinhaTecnica('Nov 06 08:00:00.000 [err] Reading config failed--see warnings above.').nivel, NivelDaLinha.erro);
+    expect(lerLinhaTecnica('[2026-11-06 08:00:00] [E] socks5 tunnel init failed').nivel, NivelDaLinha.erro);
+    expect(lerLinhaTecnica('[2026-11-06 08:00:00] [W] session timeout').nivel, NivelDaLinha.aviso);
+    expect(lerLinhaTecnica('[2026-11-06 08:00:00] [I] connected').nivel, NivelDaLinha.normal);
+    expect(lerLinhaTecnica('—— Iniciando Tor por DIRETO ——').nivel, NivelDaLinha.normal);
+    expect(lerLinhaTecnica('Não foi possível ler o log: sem espaço').nivel, NivelDaLinha.aviso);
+
+    final p = contarProblemas([guarda, r, lerLinhaTecnica('Nov 06 08:00:00.000 [warn] algo')]);
+    expect(p.erros, 0);
+    expect(p.avisos, 1);
+    expect(resumoDoRegistro(0, 0), startsWith('Nenhum erro nem aviso'));
+    expect(resumoDoRegistro(0, 2), contains('2 avisos'));
+    expect(resumoDoRegistro(1, 0), startsWith('1 erro '));
+    expect(resumoDoRegistro(3, 1), startsWith('3 erros'));
+  });
+
+  test('Técnico: o registro de 06/11/2026 (POCO C71) não tem nada em vermelho nem em amarelo', () {
+    final linhas = File('test/dados/tor-2026-11-06.txt')
+        .readAsLinesSync()
+        .where((l) => l.trim().isNotEmpty)
+        .map(lerLinhaTecnica)
+        .toList();
+    expect(linhas.length, greaterThan(30));
+    final p = contarProblemas(linhas);
+    expect(p.erros, 0);
+    expect(p.avisos, 0);
+    // Toda mensagem do Tor desse registro ganhou explicação em português.
+    final semExplicacao = linhas.where((l) => l.texto.contains('[notice]') && l.explicacao == null).map((l) => l.texto);
+    expect(semExplicacao, isEmpty);
+  });
+
   test('ResumoRotas lê categorias, desvios e pausas', () {
     final r = ResumoRotas.deMapa({
       'categorias': [

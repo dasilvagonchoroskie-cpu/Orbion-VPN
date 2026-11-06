@@ -403,7 +403,19 @@ class _TelaRegistrosState extends State<TelaRegistros> {
   // ------------------------------------------------------------------
 
   Widget _vistaTecnica() {
-    final linhas = (_logDoTor ? _log.tor : _log.tunel).reversed.toList();
+    final todas = (_logDoTor ? _log.tor : _log.tunel).map(lerLinhaTecnica).toList();
+    final linhas = todas.reversed.toList();
+    final problemas = contarProblemas(todas);
+    final corDoResumo = problemas.erros > 0
+        ? Cores.vermelho
+        : problemas.avisos > 0
+            ? Cores.amarelo
+            : Cores.verde;
+    final iconeDoResumo = problemas.erros > 0
+        ? Icons.error_outline
+        : problemas.avisos > 0
+            ? Icons.info_outline
+            : Icons.verified;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -446,6 +458,23 @@ class _TelaRegistrosState extends State<TelaRegistros> {
           padding: const EdgeInsets.fromLTRB(18, 2, 18, 6),
           child: Text('${linhas.length} linhas  •  mais recente no topo', style: const TextStyle(color: Cores.textoFraco, fontSize: 12)),
         ),
+        if (linhas.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(iconeDoResumo, size: 16, color: corDoResumo),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    resumoDoRegistro(problemas.erros, problemas.avisos),
+                    style: TextStyle(color: corDoResumo, fontSize: 12.5, height: 1.3),
+                  ),
+                ),
+              ],
+            ),
+          ),
         Expanded(
           child: linhas.isEmpty
               ? const Center(
@@ -460,17 +489,29 @@ class _TelaRegistrosState extends State<TelaRegistros> {
                     itemCount: linhas.length,
                     itemBuilder: (context, i) {
                       final l = linhas[i];
-                      final low = l.toLowerCase();
-                      final cor = (low.contains('[err') || low.contains('[e]') || low.contains('error') || low.contains('failed'))
-                          ? Cores.vermelho
-                          : (low.contains('[warn') || low.contains('[w]'))
-                              ? Cores.amarelo
-                              : low.contains('bootstrapped')
-                                  ? Cores.ciano
-                                  : const Color(0xFFB5C2D3);
+                      final cor = switch (l.nivel) {
+                        NivelDaLinha.erro => Cores.vermelho,
+                        NivelDaLinha.aviso => Cores.amarelo,
+                        NivelDaLinha.progresso => Cores.ciano,
+                        NivelDaLinha.normal => const Color(0xFFB5C2D3),
+                      };
+                      final explicacao = l.explicacao;
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 1.5),
-                        child: Text(l, style: TextStyle(fontFamily: 'monospace', fontSize: 11, color: cor, height: 1.3)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(l.texto, style: TextStyle(fontFamily: 'monospace', fontSize: 11, color: cor, height: 1.3)),
+                            if (explicacao != null)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 10, top: 1, bottom: 3),
+                                child: Text(
+                                  '↳ $explicacao',
+                                  style: const TextStyle(color: Cores.textoFraco, fontSize: 11.5, height: 1.3),
+                                ),
+                              ),
+                          ],
+                        ),
                       );
                     },
                   ),

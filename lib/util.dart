@@ -214,3 +214,140 @@ String nomeDoComponente(String caminho) {
   };
   return nomes[arquivo] ?? arquivo;
 }
+
+// ---------------------------------------------------------------------------
+// Registro técnico (Registros › Técnico)
+// ---------------------------------------------------------------------------
+
+/// Gravidade de uma linha do registro técnico.
+enum NivelDaLinha { erro, aviso, progresso, normal }
+
+/// Uma linha do registro técnico, já classificada.
+class LinhaTecnica {
+  final String texto;
+  final NivelDaLinha nivel;
+
+  /// Explicação em português das mensagens mais comuns do Tor (quase todas
+  /// são do funcionamento normal). Nula quando a mensagem não é conhecida.
+  final String? explicacao;
+
+  const LinhaTecnica(this.texto, this.nivel, [this.explicacao]);
+}
+
+/// Etiqueta que o próprio Tor põe em cada linha: "[notice]", "[warn]", "[err]".
+final RegExp _etiquetaDoTor = RegExp(r'\[(err|warn|notice|info|debug)\]');
+
+/// Etiqueta do túnel (hev-socks5-tunnel): "[2026-11-06 07:33:09] [W] ...".
+final RegExp _etiquetaDoTunel = RegExp(r'^\[[^\]]+\] \[([DIWE])\] ');
+
+final RegExp _progressoDoTor = RegExp(r'Bootstrapped (\d+)%');
+final RegExp _versaoDoTor = RegExp(r'\] Tor (\d+\.\d+\.\d+\.\d+)');
+
+int _campoDoResumo(String linha, String campo) =>
+    int.tryParse(RegExp('\\b$campo=(\\d+)').firstMatch(linha)?.group(1) ?? '') ?? 0;
+
+/// Classifica uma linha do registro técnico.
+///
+/// A gravidade vem da etiqueta que o Tor (ou o túnel) escreveu, e não de
+/// palavras soltas: o resumo periódico do Tor traz "connection_failed=0" e,
+/// antes, aparecia em vermelho como se fosse erro.
+LinhaTecnica lerLinhaTecnica(String linha) {
+  final doTor = _etiquetaDoTor.firstMatch(linha)?.group(1);
+  final doTunel = doTor == null ? _etiquetaDoTunel.firstMatch(linha)?.group(1) : null;
+  final NivelDaLinha nivel;
+  if (doTor == 'err' || doTunel == 'E') {
+    nivel = NivelDaLinha.erro;
+  } else if (doTor == 'warn' || doTunel == 'W') {
+    nivel = NivelDaLinha.aviso;
+  } else if (_progressoDoTor.hasMatch(linha)) {
+    nivel = NivelDaLinha.progresso;
+  } else if (doTor == null && doTunel == null && _pareceFalhaDoOrbion(linha)) {
+    // Linhas escritas pelo próprio Orbion (em português, sem etiqueta).
+    nivel = NivelDaLinha.aviso;
+  } else {
+    nivel = NivelDaLinha.normal;
+  }
+  return LinhaTecnica(linha, nivel, explicarLinhaDoTor(linha));
+}
+
+bool _pareceFalhaDoOrbion(String linha) {
+  final l = linha.toLowerCase();
+  return l.contains('não foi possível') || l.contains('falhou');
+}
+
+/// Explica em português as mensagens mais comuns do Tor. Em inglês, mesmo as
+/// normais assustam quem lê.
+String? explicarLinhaDoTor(String linha) {
+  bool tem(String trecho) => linha.contains(trecho);
+
+  final progresso = _progressoDoTor.firstMatch(linha);
+  if (progresso != null) {
+    final pct = progresso.group(1);
+    return pct == '100' ? 'Conectado à rede Tor.' : 'Conectando à rede Tor: $pct%.';
+  }
+  final versao = _versaoDoTor.firstMatch(linha);
+  if (versao != null && tem(' running on ')) return 'Versão do Tor embutida no Orbion: ${versao.group(1)}.';
+  if (tem('Circuit build expiry summary')) {
+    final prontos = _campoDoResumo(linha, 'completed');
+    final cortados = _campoDoResumo(linha, 'connection_failed');
+    final extra = cortados > 0
+        ? ', $cortados ${cortados == 1 ? 'cortado' : 'cortados'} por falha de conexão (troca de rede ou sinal fraco)'
+        : '';
+    return 'Normal: resumo periódico do Tor — $prontos ${prontos == 1 ? 'circuito montado' : 'circuitos montados'}$extra.';
+  }
+  if (tem('excluded by path restriction')) return 'Normal: o Tor usou mais um nó de entrada para montar um circuito.';
+  if (tem('DisableNetwork is set')) {
+    return 'Normal: o Orbion pausou o Tor por um instante para trocar de rede (Wi-Fi ⇄ dados móveis).';
+  }
+  if (tem('no-longer-configured')) return 'Normal: pausa de um instante na troca de rede.';
+  if (tem('New control connection opened')) return 'Normal: o Orbion deu uma ordem ao Tor (por exemplo, na troca de rede).';
+  if (tem(' listener')) return 'Normal: porta interna do Orbion, que só existe dentro do celular.';
+  if (tem("Tor can't help you if you use it wrong")) return 'Aviso padrão do Tor: aparece sempre que ele liga.';
+  if (tem('Read configuration file')) return 'Normal: o Tor leu a configuração do Orbion.';
+  if (tem('Set list of supported TLS groups')) return 'Normal: tipos de criptografia que o Tor vai usar.';
+  if (tem('Starting with guard context')) return 'Normal: o Tor escolhe os nós de entrada da rede.';
+  if (tem('Tor has successfully opened a circuit')) return 'Tudo certo: o Tor está funcionando.';
+  if (tem('Heartbeat:')) return 'Normal: resumo periódico do Tor.';
+  if (tem('Your system clock just jumped')) return 'Normal: o celular estava dormindo; o Tor refaz os circuitos sozinho.';
+  if (tem('has not observed any network activity')) return 'Normal: o celular ficou um tempo sem usar a internet.';
+  if (tem("haven't used client functionality lately")) return 'Normal: o celular voltou a usar a internet.';
+  if (tem('directory information is no longer up-to-date')) {
+    return 'O Tor está atualizando a lista de servidores (normal depois de muito tempo sem internet).';
+  }
+  if (tem('learned some more directory information')) return 'Normal: o Tor está baixando a lista de servidores da rede.';
+  if (tem('now have enough directory information')) return 'Normal: o Tor já pode montar circuitos.';
+  if (tem('Have tried resolving or connecting to address')) {
+    return 'Um site ou app não respondeu pelo Tor. Se for sempre o mesmo, a rota inteligente cuida disso.';
+  }
+  if (tem('is failing') && tem('circuits')) return 'Um nó de entrada do Tor está sobrecarregado; o Tor se ajusta sozinho.';
+  if (tem('Failed to find node for hop')) return 'O Tor descartou um circuito e já está montando outro.';
+  if (tem('Problem bootstrapping')) {
+    return 'Dificuldade para conectar ao Tor (sinal fraco ou bloqueio). O Orbion tenta outro caminho sozinho.';
+  }
+  if (tem('Received http status code')) return 'Normal: um servidor do Tor não tinha essa informação; o Tor pede a outro.';
+  if (tem('exiting cleanly') || tem('will shut down in')) return 'Normal: o Orbion desligou o Tor.';
+  if (tem('new bridge descriptor')) return 'Normal: ponte (bridge) encontrada.';
+  return null;
+}
+
+/// Quantos erros e avisos há nas linhas (resumo no topo do Técnico).
+({int erros, int avisos}) contarProblemas(Iterable<LinhaTecnica> linhas) {
+  var erros = 0;
+  var avisos = 0;
+  for (final l in linhas) {
+    if (l.nivel == NivelDaLinha.erro) erros++;
+    if (l.nivel == NivelDaLinha.aviso) avisos++;
+  }
+  return (erros: erros, avisos: avisos);
+}
+
+/// A frase do topo do Técnico: diz logo se há algo errado.
+String resumoDoRegistro(int erros, int avisos) {
+  if (erros > 0) {
+    return '$erros ${erros == 1 ? 'erro' : 'erros'} nestas linhas. Se a VPN não estiver funcionando, toque em "Enviar relatório".';
+  }
+  if (avisos > 0) {
+    return 'Nenhum erro. $avisos ${avisos == 1 ? 'aviso' : 'avisos'}, quase sempre da internet (sinal fraco ou site fora do ar).';
+  }
+  return 'Nenhum erro nem aviso: as mensagens abaixo são do funcionamento normal.';
+}
