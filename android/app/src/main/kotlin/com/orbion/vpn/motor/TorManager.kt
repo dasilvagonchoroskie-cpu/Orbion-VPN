@@ -41,6 +41,9 @@ class TorManager(private val context: Context) {
         private const val MAX_LINHAS_LOG = 500
         private val logDoTor = ArrayDeque<String>()
 
+        /** Falha porque o aparelho não tinha rede nenhuma (não é bloqueio do Tor). */
+        const val SEM_INTERNET = "O aparelho está sem internet. A VPN conecta sozinha assim que a internet voltar."
+
         /**
          * "Your application is giving Tor only an IP address": app que conecta
          * direto num número (WhatsApp, apps com endereço fixo ou DNS próprio).
@@ -115,6 +118,12 @@ class TorManager(private val context: Context) {
     @Volatile var contornouBloqueio = false
         private set
 
+    /**
+     * O aparelho está sem rede nenhuma? (Quem cria o TorManager informa.)
+     * Sem rede, uma falha não é bloqueio: não troca de caminho.
+     */
+    @Volatile var semInternet: () -> Boolean = { false }
+
     @Volatile private var sinaisDeBloqueio = 0
     @Volatile private var torEncerrouSozinho = false
     @Volatile private var ultimoAvanco = 0L
@@ -174,6 +183,15 @@ class TorManager(private val context: Context) {
             Log.d(TAG, "Escada de entrada: ${escada.joinToString { it.name }}")
             for ((i, degrau) in escada.withIndex()) {
                 if (stopRequested.get()) return false
+                // Sem rede nenhuma todos os caminhos falham: não é bloqueio.
+                // Subir a escada só atrasaria (e ensinaria um caminho errado
+                // para esta rede). Em 05/11/2026, ligando o celular, a VPN
+                // tentou os 3 caminhos antes de a internet chegar e anotou
+                // "esta rede provavelmente bloqueia o Tor".
+                if (i > 0 && semInternet()) {
+                    Log.w(TAG, "Sem internet no aparelho: não sobe a escada.")
+                    break
+                }
                 caminhoEmUso = degrau
                 Painel.caminhoEmUso = degrau.name
                 if (i > 0) {
@@ -193,8 +211,12 @@ class TorManager(private val context: Context) {
                 }
             }
             if (lastError == null && !stopRequested.get()) {
-                lastError = explicacaoDaFalha(prefs, escada) +
-                    if (torEncerrouSozinho) "\n\nO Tor chegou a fechar sozinho durante a tentativa. Os detalhes estão em Registros → Ver técnico." else ""
+                lastError = if (semInternet()) {
+                    SEM_INTERNET
+                } else {
+                    explicacaoDaFalha(prefs, escada) +
+                        if (torEncerrouSozinho) "\n\nO Tor chegou a fechar sozinho durante a tentativa. Os detalhes estão em Registros → Ver técnico." else ""
+                }
             }
             return false
         } catch (e: Exception) {

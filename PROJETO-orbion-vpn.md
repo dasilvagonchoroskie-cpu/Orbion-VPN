@@ -53,6 +53,10 @@ e religamento automático se o sistema derrubar a VPN.
   técnico perguntando se faltava alguma atualização ou correção. O registro
   estava saudável (seção 5.6); a 6.3.1 traz o Tor 0.4.9.15 (correções de
   segurança) e tira o falso alarme da aba Técnico.
+- v6.3.2 (06/11/2026): o Evandro instalou a 6.3.1 e mandou o relatório "só
+  para mostrar". Tudo saudável; ajustes finos na seção 5.7 (aviso inofensivo
+  do Tor 0.4.9.15, primeira conexão depois de atualizar, celular ligando sem
+  internet).
 
 ## 3. Decisões travadas
 
@@ -347,6 +351,38 @@ ao acordar. Guardado como teste em `test/dados/tor-2026-11-06.txt`.
    16.0), com correções de segurança e três novas defesas contra negação de
    serviço. A esteira pega sozinha o pacote estável mais novo do Tor Browser.
 
+### 5.7 O relatório de 06/11/2026 10:40 (6.3.1 recém-instalada)
+
+1. A 6.3.1 instalou por cima da 6.3.0 sem desinstalar e a liberação da
+   Central continuou valendo (mesma chave). A "VPN sempre ativa" religou em
+   5 s e conectou em 14 s; Tor 0.4.9.15; diagnóstico todo OK; nenhum erro
+   interno; nenhum aviso do túnel.
+2. "[warn] No lists of TLS groups were supported. Using library defaults":
+   novo no Tor 0.4.9.15 (Tor Browser 16.0), aparece toda vez que o Tor liga.
+   O Tor passa a usar a lista padrão do OpenSSL 3.5, que é moderna e já tem
+   a troca de chaves pós-quântica: inofensivo. Na 6.3.1 a aba Técnico contava
+   esse "[warn]" como aviso; na 6.3.2 ele aparece como normal, com explicação.
+3. "Tempos: apps 9,4s" na primeira conexão depois de atualizar: a
+   classificação dos apps guardada em disco era jogada fora a cada versão do
+   Orbion, e o nome de cada app era lido de novo, com o tráfego ainda fora da
+   VPN. Na 6.3.2 ela só é refeita quando o CATÁLOGO muda (impressão digital
+   das listas + `REGRAS_DA_CLASSIFICACAO`, que deve ser aumentado quando a
+   lógica de `categoriaDoApp` mudar).
+4. 05/11 09:24–09:26, celular ligando: a VPN tentou os três caminhos (normal,
+   Snowflake, obfs4) antes de a internet chegar e anotou "esta rede
+   provavelmente bloqueia o Tor" — errado. Na 6.3.2, sem rede nenhuma o Tor
+   não troca de caminho, a mensagem é "O aparelho está sem internet. A VPN
+   conecta sozinha assim que a internet voltar." e, quando a rede chega, a
+   reconexão sai na hora (sem esperar o intervalo do Kill Switch).
+5. Fechamentos da VPN com importância 400 logo depois de "Desligada por você"
+   são normais (o Android limpa o processo parado). O relatório agora marca
+   "normal (a VPN já estava desligada)".
+6. Em aberto: em 23/10 e 27/10 o limpador da Xiaomi (PeriodicCleaner, com
+   pouca memória) derrubou a VPN em uso; o vigia de 15 min religou em 7–11
+   min. Como "Bloquear conexões sem VPN" fica desligado (ligado, ele cortaria
+   a internet dos apps que vão por fora do Tor), o tráfego saiu sem a VPN
+   nesse intervalo. Próxima melhoria: religar mais rápido nesse caso.
+
 ## 6. Compilação e entrega
 
 - Esteira: `.github/workflows/compilar-apk.yml` a cada envio para `main`:
@@ -425,6 +461,10 @@ sempre com esta chave**:
 
 ## 7. Status
 
+- v6.3.2 (06/11/2026): ajustes da seção 5.7. Conferido localmente: o motor
+  Kotlin compila e passa nos 82 testes (3 novos: impressão do catálogo e
+  mensagem de "sem internet"); testes do Flutter com os dois registros reais
+  de 06/11 (0.4.9.14 e 0.4.9.15) sem nada em vermelho ou amarelo.
 - v6.3.1 (06/11/2026): compilada na esteira (execução 21: análise sem avisos,
   20 testes do Flutter, manifesto e 16 KB ok). Tor 0.4.9.15 + OpenSSL 3.5.9
   do Tor Browser 16.0 nas três arquiteturas, lyrebird do pacote, Snowflake do

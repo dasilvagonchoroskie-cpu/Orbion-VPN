@@ -1,0 +1,20 @@
+—— Iniciando Tor por DIRETO ——
+Nov 06 10:37:58.924 [notice] Tor 0.4.9.15 (git-4d8efff53a86670b) running on Linux with Libevent 2.1.13-stable, OpenSSL 3.5.9, Zlib 1.3.2, Liblzma N/A, Libzstd 1.5.7 and Unknown N/A as libc.
+Nov 06 10:37:58.924 [notice] Tor can't help you if you use it wrong! Learn how to be safe at https://support.torproject.org/faq/staying-anonymous/
+Nov 06 10:37:58.924 [notice] Read configuration file "/data/user/0/com.orbion.vpn/files/torrc".
+Nov 06 10:37:58.931 [notice] Opening Socks listener on 127.0.0.1:19050
+Nov 06 10:37:58.931 [notice] Opened Socks listener connection (ready) on 127.0.0.1:19050
+Nov 06 10:37:58.931 [notice] Opening Control listener on 127.0.0.1:19051
+Nov 06 10:37:58.931 [notice] Opened Control listener connection (ready) on 127.0.0.1:19051
+Nov 06 10:37:59.000 [warn] No lists of TLS groups were supported. Using library defaults
+Nov 06 10:37:59.000 [notice] Bootstrapped 0% (starting): Starting
+Nov 06 10:38:00.000 [notice] Starting with guard context "default"
+Nov 06 10:38:01.000 [notice] Bootstrapped 5% (conn): Connecting to a relay
+Nov 06 10:38:01.000 [notice] All current guards excluded by path restriction type 2; using an additional guard.
+Nov 06 10:38:02.000 [notice] Bootstrapped 10% (conn_done): Connected to a relay
+Nov 06 10:38:02.000 [notice] Bootstrapped 14% (handshake): Handshaking with a relay
+Nov 06 10:38:02.000 [notice] Bootstrapped 15% (handshake_done): Handshake with a relay done
+Nov 06 10:38:02.000 [notice] Bootstrapped 75% (enough_dirinfo): Loaded enough directory info to build circuits
+Nov 06 10:38:02.000 [notice] Bootstrapped 90% (ap_handshake_done): Handshake finished with a relay to build circuits
+Nov 06 10:38:02.000 [notice] Bootstrapped 95% (circuit_create): Establishing a Tor circuit
+Nov 06 10:38:03.000 [notice] Bootstrapped 100% (done): Done

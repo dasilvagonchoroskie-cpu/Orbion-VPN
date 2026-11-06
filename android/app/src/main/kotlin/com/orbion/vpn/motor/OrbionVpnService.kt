@@ -200,6 +200,8 @@ class OrbionVpnService : VpnService() {
     @Volatile private var reconstruindo = false
     @Volatile private var usuarioPediuParar = false
     @Volatile private var tentativaDeReconexao = 0
+    /** A última tentativa falhou porque o aparelho estava sem rede nenhuma. */
+    @Volatile private var aguardandoInternet = false
     @Volatile private var origemAtual = ORIGEM_TELA
     @Volatile private var textoNotificacao = "Iniciando..."
     @Volatile private var ultimoAvisoDeMemoria = 0L
@@ -440,6 +442,7 @@ class OrbionVpnService : VpnService() {
             }
 
             val t = TorManager(this)
+            t.semInternet = { !temRede() }
             tor = t
             if (g != geracao.get()) {
                 t.stop()
@@ -472,6 +475,7 @@ class OrbionVpnService : VpnService() {
 
             jaConectou = true
             tentativaDeReconexao = 0
+            aguardandoInternet = false
             // Tor novo, conexões novas: a referência de rede recomeça daqui.
             redeDoTor = redePadrao()
             torEmEspera = false
@@ -732,6 +736,10 @@ class OrbionVpnService : VpnService() {
         tor = null
         filtro?.entrarEmModoKillSwitch()
         if (jaConectou) Painel.quedasDoTor++
+        // Sem internet não é queda do Tor nem bloqueio da rede: quando a
+        // internet chegar, avaliarRede() tenta de novo na hora.
+        aguardandoInternet = motivo == TorManager.SEM_INTERNET
+        if (aguardandoInternet) Painel.semInternet = true
         Painel.bloqueado(motivo)
         notificar("Rede Tor fora do ar — protegendo o tráfego e reconectando...", null)
         Eventos.anotar(this, "Kill Switch: ${motivo.lineSequence().firstOrNull() ?: motivo}")
@@ -1057,6 +1065,17 @@ class OrbionVpnService : VpnService() {
 
     /** Decide se o Tor precisa refazer as conexões (fila de controle). */
     private fun avaliarRede() {
+        // A última tentativa falhou por falta de internet (ex.: celular
+        // acabando de ligar) e a rede chegou: tenta já, sem esperar a vez.
+        if (aguardandoInternet && Painel.estado == Painel.Estado.BLOQUEADO && !usuarioPediuParar &&
+            redesVivas.isNotEmpty()
+        ) {
+            aguardandoInternet = false
+            tentativaDeReconexao = 0
+            Eventos.anotar(this, "A internet chegou. Conectando à rede Tor.")
+            agendarReconexao()
+            return
+        }
         val t = tor ?: return
         if (Painel.estado != Painel.Estado.CONECTADO) return
         if (redesVivas.isEmpty()) {

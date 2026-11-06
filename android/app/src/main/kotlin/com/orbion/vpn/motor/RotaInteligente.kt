@@ -377,23 +377,35 @@ object RotaInteligente {
     // religamento pelo Android, ligar o celular) a classificação inteira era
     // refeita ANTES de a interface da VPN subir — segundos com o tráfego
     // saindo sem proteção e a VPN demorando a conectar. Agora fica num
-    // arquivo pequeno; só app novo ou atualizado é lido de novo. O arquivo
-    // é refeito a cada versão do Orbion (o catálogo pode ter mudado).
+    // arquivo pequeno; só app novo ou atualizado é lido de novo.
+    //
+    // O arquivo só é refeito quando o CATÁLOGO muda (impressão digital
+    // abaixo). Até a 6.3.1 ele era refeito a cada versão do Orbion: no POCO
+    // C71, a primeira conexão depois de atualizar levava 9,4 s só lendo os
+    // apps (06/11/2026), com o tráfego ainda fora da VPN.
     // ------------------------------------------------------------------
 
     private const val ARQUIVO_CLASSIFICACAO = "classificacao.cache"
     @Volatile private var discoLido = false
     private val travaDoDisco = Any()
 
-    private fun cabecalho(context: Context): String {
-        val v = try {
-            val pi = context.packageManager.getPackageInfo(context.packageName, 0)
-            if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else @Suppress("DEPRECATION") pi.versionCode.toLong()
-        } catch (_: Exception) {
-            0L
+    /** Mudou a LÓGICA de categoriaDoApp (não só as listas)? Aumente este número. */
+    private const val REGRAS_DA_CLASSIFICACAO = 1
+
+    /** Impressão digital do catálogo: muda quando qualquer lista muda. */
+    val impressaoDoCatalogo: String by lazy {
+        val texto = buildString {
+            append(exatos.toSortedMap()).append('|')
+            append(prefixos).append('|')
+            append(palavrasDeBancoNoPacote).append('|')
+            append(palavrasDeGovernoNoNome).append('|')
+            append(regexPix.pattern).append('|')
+            for (c in Categoria.values()) append(c.id).append(',')
         }
-        return "orbion-classificacao 1 $v"
+        Integer.toHexString(texto.hashCode())
     }
+
+    private fun cabecalho(): String = "orbion-classificacao 2 $REGRAS_DA_CLASSIFICACAO $impressaoDoCatalogo"
 
     private fun lerDoDisco(context: Context) {
         if (discoLido) return
@@ -404,7 +416,7 @@ object RotaInteligente {
                 val f = File(context.filesDir, ARQUIVO_CLASSIFICACAO)
                 if (!f.exists()) return
                 val linhas = f.readLines()
-                if (linhas.firstOrNull() != cabecalho(context)) return
+                if (linhas.firstOrNull() != cabecalho()) return
                 val porId = Categoria.values().associateBy { it.id }
                 for (l in linhas.drop(1)) {
                     val p = l.split('\t')
@@ -422,7 +434,7 @@ object RotaInteligente {
         synchronized(travaDoDisco) {
             try {
                 if (instalados != null) memoria.keys.retainAll(instalados)
-                val sb = StringBuilder(memoria.size * 48).append(cabecalho(context)).append('\n')
+                val sb = StringBuilder(memoria.size * 48).append(cabecalho()).append('\n')
                 for ((pacote, l) in memoria) {
                     sb.append(pacote).append('\t').append(l.versao).append('\t').append(l.categoria?.id ?: "-").append('\n')
                 }

@@ -229,19 +229,29 @@ void main() {
     expect(resumoDoRegistro(3, 1), startsWith('3 erros'));
   });
 
-  test('Técnico: o registro de 06/11/2026 (POCO C71) não tem nada em vermelho nem em amarelo', () {
-    final linhas = File('test/dados/tor-2026-11-06.txt')
-        .readAsLinesSync()
-        .where((l) => l.trim().isNotEmpty)
-        .map(lerLinhaTecnica)
-        .toList();
-    expect(linhas.length, greaterThan(30));
-    final p = contarProblemas(linhas);
-    expect(p.erros, 0);
-    expect(p.avisos, 0);
-    // Toda mensagem do Tor desse registro ganhou explicação em português.
-    final semExplicacao = linhas.where((l) => l.texto.contains('[notice]') && l.explicacao == null).map((l) => l.texto);
-    expect(semExplicacao, isEmpty);
+  test('Técnico: os registros de 06/11/2026 (POCO C71, Tor 0.4.9.14 e 0.4.9.15) não têm nada em vermelho nem em amarelo',
+      () {
+    for (final arquivo in ['test/dados/tor-2026-11-06.txt', 'test/dados/tor-2026-11-06-6.3.1.txt']) {
+      final linhas = File(arquivo).readAsLinesSync().where((l) => l.trim().isNotEmpty).map(lerLinhaTecnica).toList();
+      expect(linhas.length, greaterThan(15), reason: arquivo);
+      final p = contarProblemas(linhas);
+      expect(p.erros, 0, reason: arquivo);
+      expect(p.avisos, 0, reason: arquivo);
+      // Toda mensagem do Tor desses registros ganhou explicação em português.
+      final semExplicacao = linhas
+          .where((l) => (l.texto.contains('[notice]') || l.texto.contains('[warn]')) && l.explicacao == null)
+          .map((l) => l.texto);
+      expect(semExplicacao, isEmpty, reason: arquivo);
+    }
+  });
+
+  test('Técnico: o aviso de grupos TLS do Tor 0.4.9.15 é inofensivo', () {
+    final l = lerLinhaTecnica(
+        'Nov 06 10:37:59.000 [warn] No lists of TLS groups were supported. Using library defaults');
+    expect(l.nivel, NivelDaLinha.normal);
+    expect(l.explicacao, startsWith('Inofensivo'));
+    // Um aviso de verdade continua amarelo.
+    expect(lerLinhaTecnica('Nov 06 10:40:00.000 [warn] Problem bootstrapping. Stuck at 10%').nivel, NivelDaLinha.aviso);
   });
 
   test('ResumoRotas lê categorias, desvios e pausas', () {

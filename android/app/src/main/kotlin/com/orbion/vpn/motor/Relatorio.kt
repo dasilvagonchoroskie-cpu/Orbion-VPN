@@ -114,8 +114,14 @@ object Relatorio {
                 append(data(f.quando)).append("  •  ").append(if (f.daVpn) "VPN" else "tela")
                 append("  •  motivo ").append(f.codigo).append(": ").append(f.explicacao)
                 append("  •  importância ").append(f.importancia)
-                if (f.inesperado) append("  •  INESPERADO")
-                else if (!f.daVpn && f.importancia >= 400) append("  •  normal (tela em segundo plano)")
+                if (f.inesperado) {
+                    append("  •  INESPERADO")
+                } else if (f.importancia >= 400) {
+                    // Processo parado (importância "em cache"): para a VPN, quer
+                    // dizer que ela já estava desligada (ligada, o processo fica
+                    // em primeiro plano, importância 125).
+                    append(if (f.daVpn) "  •  normal (a VPN já estava desligada)" else "  •  normal (tela em segundo plano)")
+                }
                 if (f.anterior) append("  •  antes desta versão")
                 if (f.descricao.isNotBlank()) append("  •  \"").append(f.descricao).append('"')
                 append('\n')

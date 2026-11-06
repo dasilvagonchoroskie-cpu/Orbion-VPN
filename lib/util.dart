@@ -240,6 +240,13 @@ final RegExp _etiquetaDoTor = RegExp(r'\[(err|warn|notice|info|debug)\]');
 /// Etiqueta do túnel (hev-socks5-tunnel): "[2026-11-06 07:33:09] [W] ...".
 final RegExp _etiquetaDoTunel = RegExp(r'^\[[^\]]+\] \[([DIWE])\] ');
 
+/// Avisos ("[warn]") do Tor que não indicam problema nenhum.
+///  - "No lists of TLS groups were supported": desde o Tor 0.4.9.15 (Tor
+///    Browser 16.0) aparece a cada vez que o Tor liga; ele passa a usar a
+///    lista padrão do OpenSSL 3.5, que é moderna e já inclui a troca de chaves
+///    pós-quântica. A conexão continua protegida (registro de 06/11/2026).
+const List<String> _avisosInofensivos = ['No lists of TLS groups were supported'];
+
 final RegExp _progressoDoTor = RegExp(r'Bootstrapped (\d+)%');
 final RegExp _versaoDoTor = RegExp(r'\] Tor (\d+\.\d+\.\d+\.\d+)');
 
@@ -257,7 +264,7 @@ LinhaTecnica lerLinhaTecnica(String linha) {
   final NivelDaLinha nivel;
   if (doTor == 'err' || doTunel == 'E') {
     nivel = NivelDaLinha.erro;
-  } else if (doTor == 'warn' || doTunel == 'W') {
+  } else if ((doTor == 'warn' && !_avisosInofensivos.any(linha.contains)) || doTunel == 'W') {
     nivel = NivelDaLinha.aviso;
   } else if (_progressoDoTor.hasMatch(linha)) {
     nivel = NivelDaLinha.progresso;
@@ -305,6 +312,10 @@ String? explicarLinhaDoTor(String linha) {
   if (tem("Tor can't help you if you use it wrong")) return 'Aviso padrão do Tor: aparece sempre que ele liga.';
   if (tem('Read configuration file')) return 'Normal: o Tor leu a configuração do Orbion.';
   if (tem('Set list of supported TLS groups')) return 'Normal: tipos de criptografia que o Tor vai usar.';
+  if (tem('No lists of TLS groups were supported')) {
+    return 'Inofensivo: o Tor usa a criptografia padrão do OpenSSL, moderna e com proteção pós-quântica. '
+        'A conexão continua protegida.';
+  }
   if (tem('Starting with guard context')) return 'Normal: o Tor escolhe os nós de entrada da rede.';
   if (tem('Tor has successfully opened a circuit')) return 'Tudo certo: o Tor está funcionando.';
   if (tem('Heartbeat:')) return 'Normal: resumo periódico do Tor.';

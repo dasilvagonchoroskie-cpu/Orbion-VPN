@@ -11,7 +11,7 @@ import 'telas/painel.dart';
 import 'telas/registros.dart';
 
 /// Versão mostrada na Central, ao lado da licença deste aparelho.
-const versaoOrbion = '6.3.1';
+const versaoOrbion = '6.3.2';
 
 /// Trava pela Central de Licenças. LIGADA por padrão: o Orbion é vendido só
 /// no site, então todo APK sai travado. Se um dia ele for para a Play Store
