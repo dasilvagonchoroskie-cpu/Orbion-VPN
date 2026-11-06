@@ -355,10 +355,19 @@ ao acordar. Guardado como teste em `test/dados/tor-2026-11-06.txt`.
   NDK, CGO, -checklinkname=0, 16 KB) → APKs por arquitetura → conferência de
   conteúdo e assinatura → conferência do manifesto (motor no `:vpn`, sem
   QUERY_ALL_PACKAGES) → conferência de páginas de 16 KB (64 bits).
+- Pacote do Tor: a esteira pega sozinha o Tor Browser estável mais novo. Desde
+  o 16.0 (29/10/2026) o Tor vem em `tor/libTor.so`, o lyrebird em
+  `tor/pluggable_transports/` e o Snowflake não vem mais para Android (vale o
+  compilado do código-fonte). O script só aceita arquivo ELF da arquitetura
+  certa (antes pegava a licença `docs/lyrebird.txt` no lugar do programa) e o
+  resumo da esteira mostra a versão do Tor de cada arquitetura. APK de
+  produção nunca sai com o motor de reserva (Tor mais antigo).
 - Assinatura: a sessão do Claude não consegue gravar segredos do GitHub, então
   a esteira publica com chave de depuração na release `compilacao-interna`
   (NÃO instalar). A assinatura oficial é feita fora da esteira: zipalign -p 4
-  e apksigner (v2+v3) com a chave abaixo; o APK assinado é entregue no chat.
+  e apksigner (v2+v3) com a **chave dedicada da seção 6.1**; o APK assinado é
+  entregue no chat. O Evandro manda o `orbion-release.jks.base64.txt` no chat
+  quando é preciso assinar (a senha nunca vai para o repositório).
 - Opcional: segredos `ORBION_KEYSTORE_BASE64` e `ORBION_KEYSTORE_SENHA`
   (alias `orbion`) fazem a esteira assinar e publicar em `apk-mais-recente`.
 - **Chave antiga, só até a 6.2.0** (desde a 6.3.0 vale a chave dedicada da
@@ -370,10 +379,11 @@ ao acordar. Guardado como teste em `test/dados/tor-2026-11-06.txt`.
 - versionCode = 1000 × arquitetura + (60 + número da execução da esteira)
   (arm64-v8a = 2xxx). A 6.1.0 entregue foi 2068 (execução 8); a 6.1.1, 2072
   (execução 12); a 6.1.2, 2073 (execução 13); a 6.2.0 entregue é 2075
-  (execução 15).
-- APK para celular: `Orbion-VPN-v6.2.0-arm64-v8a.apk`, SHA-256
-  23b43b87b19a2bdfb3a06ded73c98079c8a0ee46923b44df3e1787782de74420.
-  Instala por cima da 6.1.x sem desinstalar (mesma chave).
+  (execução 15); a 6.3.1, 2081 (execução 21).
+- APK entregue: `Orbion-VPN-v6.3.1.apk` (arm64-v8a, o dos celulares atuais),
+  SHA-256 287ad078274fdcffcc9086c757cb30cdedb8f995a8e40943deba60d54ac5de34,
+  assinado com a chave dedicada (173bb0ba…). Instala por cima da 6.3.0 sem
+  desinstalar e sem perder a liberação da Central.
 - A esteira mostra no resumo os avisos do `flutter analyze` e o total de
   testes (a sessão do Claude não consegue baixar os registros completos).
 
@@ -408,10 +418,21 @@ sempre com esta chave**:
   `ORBION_KEYSTORE_SENHA` estiverem no GitHub; e **confere a impressão digital
   antes de publicar** (passo "Conferir que é a chave do Orbion").
 - A primeira entrega (v6.3.0, 16/10/2026) foi assinada fora da esteira com esta
-  chave e entregue como `Orbion-VPN-v6.3.0.apk`.
+  chave e entregue como `Orbion-VPN-v6.3.0.apk`. A 6.3.1 (06/11/2026) também.
+- Atenção: o Evandro tem também a chave **antiga** (`CHAVE-orbion-vpn-release.jks`,
+  usada até a 6.2.0). Ela NÃO serve mais para o Orbion. A certa é a
+  `orbion-release.jks` (ou o `orbion-release.jks.base64.txt`).
 
 ## 7. Status
 
+- v6.3.1 (06/11/2026): compilada na esteira (execução 21: análise sem avisos,
+  20 testes do Flutter, manifesto e 16 KB ok). Tor 0.4.9.15 + OpenSSL 3.5.9
+  do Tor Browser 16.0 nas três arquiteturas, lyrebird do pacote, Snowflake do
+  código-fonte, 7 bridges obfs4 + 2 snowflake embutidas, versionCode 2081.
+  Assinada com a chave dedicada e entregue como `Orbion-VPN-v6.3.1.apk`.
+  O que conferir no celular: Registros › Técnico diz no topo "Nenhum erro nem
+  aviso" e cada mensagem do Tor tem a explicação em português; Config › Sobre
+  mostra o Tor 0.4.9.15.
 - v6.3.0 (16/10/2026): integrada à Central de Licenças (trava sempre ligada),
   assinada com a chave dedicada do Orbion e entregue como `Orbion-VPN-v6.3.0.apk`.
   Pendente do Evandro: pôr os segredos `ORBION_KEYSTORE_BASE64`/`ORBION_KEYSTORE_SENHA`
