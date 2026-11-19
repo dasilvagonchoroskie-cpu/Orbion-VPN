@@ -1,17 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Ícone com tema (Android 13+): o Android pinta este desenho na cor do tema
+     do celular. Segue o emblema do Orbion: anel em volta do escudo com cadeado. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:height="108dp"
     android:width="108dp"
+    android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Anel -->
     <path
-        android:fillColor="#ffffff"
-        android:pathData="M54,26 Q63,40 77,41 C77,60 68,75 54,86 C40,75 31,60 31,41 Q45,40 54,26 Z M46.4,53.4 h15.2 a2.2,2.2 0 0,1 2.2,2.2 v10.4 a2.2,2.2 0 0,1 -2.2,2.2 h-15.2 a2.2,2.2 0 0,1 -2.2,-2.2 v-10.4 a2.2,2.2 0 0,1 2.2,-2.2 z"
-        android:fillType="evenOdd"/>
-    <path
-        android:fillColor="@android:color/transparent"
-        android:pathData="M49.6,53 v-2.4 a4.4,4.4 0 0,1 8.8,0 v2.4"
-        android:strokeColor="#ffffff"
-        android:strokeWidth="2.6"
-        android:strokeLineCap="round"/>
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M25,54 a29,29 0 1,0 58,0 a29,29 0 1,0 -58,0 Z M28.2,54 a25.8,25.8 0 1,0 51.6,0 a25.8,25.8 0 1,0 -51.6,0 Z" />
+    <!-- Escudo com o cadeado vazado -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.58"
+        android:scaleY="0.58">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M54,26 Q63,40 77,41 C77,60 68,75 54,86 C40,75 31,60 31,41 Q45,40 54,26 Z M46.4,53.4 h15.2 a2.2,2.2 0 0,1 2.2,2.2 v10.4 a2.2,2.2 0 0,1 -2.2,2.2 h-15.2 a2.2,2.2 0 0,1 -2.2,-2.2 v-10.4 a2.2,2.2 0 0,1 2.2,-2.2 Z M48.4,53.4 v-3 a5.6,5.6 0 0,1 11.2,0 v3 h-2.6 v-3 a3,3 0 0,0 -6,0 v3 Z" />
+    </group>
 </vector>

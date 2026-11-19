@@ -57,6 +57,8 @@ e religamento automático se o sistema derrubar a VPN.
   para mostrar". Tudo saudável; ajustes finos na seção 5.7 (aviso inofensivo
   do Tor 0.4.9.15, primeira conexão depois de atualizar, celular ligando sem
   internet).
+- v6.3.3 (19/11/2026): ícone novo — o emblema dourado "ORBION VPN" que o
+  Evandro mandou, como ícone adaptativo (seção 4.1).
 
 ## 3. Decisões travadas
 
@@ -201,6 +203,31 @@ política e dos termos, licenças), `telas/painel|apps|registros|config.dart`,
   segurança, automático, rede Tor, DNS, sobre (enviar relatório) e
   Privacidade e termos (política, termos, como usamos a VPN, licenças,
   falar com o suporte).
+
+### 4.1 Ícone (desde a 6.3.3, 19/11/2026)
+
+- Arte: `design/icone-orbion.png` (1024 px), o emblema redondo dourado com
+  escudo, cadeado, espadas e "ORBION VPN", enviado pelo Evandro já recortado
+  (fundo transparente; o PNG guarda nas partes transparentes o brilho dourado
+  da arte, que é reaproveitado no fundo).
+- `scripts/gerar-icone.py` gera tudo a partir dela (para trocar o ícone no
+  futuro: substituir a arte e rodar o script):
+  - Ícone adaptativo (`mipmap-anydpi-v26/ic_launcher.xml` e
+    `ic_launcher_round.xml`): frente = o emblema com 68 dp de diâmetro numa
+    camada de 108 dp (`mipmap-*/ic_launcher_foreground.png`); fundo = o
+    brilho dourado da arte, puxado para perto do emblema
+    (`mipmap-*/ic_launcher_background.png`). Em celular de ícone redondo
+    aparece um filete dourado em volta do emblema; em quadrado arredondado,
+    os cantos ficam dourados.
+  - Ícones tradicionais (`mipmap-*/ic_launcher.png` quadrado arredondado e
+    `ic_launcher_round.png` redondo), nas 5 densidades.
+  - `design/icone-orbion-512.png` (site/loja) e `design/previa-icone.png`
+    (como fica nos formatos redondo, squircle, arredondado e gota).
+- Ícone com tema do Android 13+ (`drawable/ic_launcher_monochrome.xml`):
+  desenho vetorial de uma cor só — anel em volta do escudo com cadeado
+  vazado, ecoando o emblema; o Android pinta na cor do tema.
+- O ícone da notificação (`drawable/ic_vpn_status.xml`, escudo branco) não
+  mudou: na barra de status o Android só aceita desenho de uma cor.
 
 ## 5. O que foi corrigido
 
@@ -462,6 +489,7 @@ sempre com esta chave**:
 
 ## 7. Status
 
+- v6.3.3 (19/11/2026): ícone novo (seção 4.1). Compilando na esteira.
 - v6.3.2 (06/11/2026): ajustes da seção 5.7. Esteira execução 22 (análise
   sem avisos, 21 testes do Flutter, Tor 0.4.9.15), versionCode 2082, assinada
   com a chave dedicada e entregue como `Orbion-VPN-v6.3.2.apk`. Conferido localmente: o motor
