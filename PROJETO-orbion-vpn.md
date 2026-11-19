@@ -431,6 +431,11 @@ ao acordar. Guardado como teste em `test/dados/tor-2026-11-06.txt`.
   e apksigner (v2+v3) com a **chave dedicada da seção 6.1**; o APK assinado é
   entregue no chat. O Evandro manda o `orbion-release.jks.base64.txt` no chat
   quando é preciso assinar (a senha nunca vai para o repositório).
+  Ferramentas (a sessão do Claude é refeita de tempos em tempos): baixar o
+  `uber-apk-signer-1.3.0.jar` da release do GitHub (patrickfav) e tirar de
+  dentro dele o `linux-zipalign-33_0_2` (com `binary-lib/linux-lib64-33_0_2`)
+  e o `lib/apksigner_33_0_2.jar`; zipalign -p 4, depois apksigner sign com
+  `--ks-pass` e `--key-pass` em arquivos separados.
 - Opcional: segredos `ORBION_KEYSTORE_BASE64` e `ORBION_KEYSTORE_SENHA`
   (alias `orbion`) fazem a esteira assinar e publicar em `apk-mais-recente`.
 - **Chave antiga, só até a 6.2.0** (desde a 6.3.0 vale a chave dedicada da
@@ -442,12 +447,13 @@ ao acordar. Guardado como teste em `test/dados/tor-2026-11-06.txt`.
 - versionCode = 1000 × arquitetura + (60 + número da execução da esteira)
   (arm64-v8a = 2xxx). A 6.1.0 entregue foi 2068 (execução 8); a 6.1.1, 2072
   (execução 12); a 6.1.2, 2073 (execução 13); a 6.2.0 entregue é 2075
-  (execução 15); a 6.3.1, 2081 (execução 21); a 6.3.2, 2082 (execução 22).
-- APK entregue: `Orbion-VPN-v6.3.2.apk` (arm64-v8a, o dos celulares atuais),
-  SHA-256 7ce9ad847baa36642d596506e6cddb78e7b54b9a39761ce98d203f607b04b233,
+  (execução 15); a 6.3.1, 2081 (execução 21); a 6.3.2, 2082 (execução 22);
+  a 6.3.3, 2083 (execução 23).
+- APK entregue: `Orbion-VPN-v6.3.3.apk` (arm64-v8a, o dos celulares atuais),
+  SHA-256 0bf040d68183978e6dcdff3fa124524dc9bd32e845b6625d6f512f1bf6507cef,
   assinado com a chave dedicada (173bb0ba…). Instala por cima da 6.3.x sem
-  desinstalar e sem perder a liberação da Central. (A 6.3.1 entregue antes
-  tinha SHA-256 287ad078…5de34.)
+  desinstalar e sem perder a liberação da Central. (Antes: 6.3.2
+  7ce9ad84…b233; 6.3.1 287ad078…5de34.)
 - A esteira mostra no resumo os avisos do `flutter analyze` e o total de
   testes (a sessão do Claude não consegue baixar os registros completos).
 
@@ -489,7 +495,12 @@ sempre com esta chave**:
 
 ## 7. Status
 
-- v6.3.3 (19/11/2026): ícone novo (seção 4.1). Compilando na esteira.
+- v6.3.3 (19/11/2026): ícone novo (seção 4.1). Esteira execução 23 (análise
+  sem avisos, 21 testes, manifesto e 16 KB ok); a esteira já pegou o Tor
+  Browser 16.0.2, com o Tor 0.4.9.16. versionCode 2083. Conferido dentro do
+  APK: as camadas do ícone novo. Assinada com a chave dedicada e entregue
+  como `Orbion-VPN-v6.3.3.apk`. Já saiu o Tor 0.4.9.17 (13/11/2026, defesas
+  dos relays contra o ataque DDoS); entra sozinho quando o Tor Browser trouxer.
 - v6.3.2 (06/11/2026): ajustes da seção 5.7. Esteira execução 22 (análise
   sem avisos, 21 testes do Flutter, Tor 0.4.9.15), versionCode 2082, assinada
   com a chave dedicada e entregue como `Orbion-VPN-v6.3.2.apk`. Conferido localmente: o motor
