@@ -408,7 +408,33 @@ ao acordar. Guardado como teste em `test/dados/tor-2026-11-06.txt`.
    pouca memória) derrubou a VPN em uso; o vigia de 15 min religou em 7–11
    min. Como "Bloquear conexões sem VPN" fica desligado (ligado, ele cortaria
    a internet dos apps que vão por fora do Tor), o tráfego saiu sem a VPN
-   nesse intervalo. Próxima melhoria: religar mais rápido nesse caso.
+   nesse intervalo. Corrigido na 6.3.4 (seção 5.8, sentinela de 1 min).
+
+### 5.8 O relatório de 19/11/2026 22:09 (6.3.3, POCO C71, Android 15)
+
+1. Saudável agora: conectada às 22:07:51 pela entrada normal (DIRETO) em 6 s,
+   Tor 0.4.9.16, nenhum erro interno, nenhum aviso do túnel, diagnóstico todo
+   OK, 33 apps por fora e 41 que a pessoa mandou para dentro do Tor.
+2. Em 19/11 09:44 o "limpar tudo" da Xiaomi (OneKeyClean) derrubou a VPN EM
+   USO (importância 125); a "VPN sempre ativa" não religou e o vigia de 15 min
+   só religou às 09:52 — 8 min sem proteção (mesmo caso de 23/10, 27/10, 10/11,
+   13/11 e 14/11). Corrigido na 6.3.4: **sentinela de 1 minuto** no `Vigia`
+   (tarefa avulsa id 4202, `setMinimumLatency(60 s)`, que se reagenda enquanto
+   `estavaLigada`; cancelada junto com o vigia). Ela sobrevive ao limpador da
+   Xiaomi pelo mesmo motivo que o vigia de 15 min sobreviveu. Queda máxima
+   esperada: ~1–2 min com a tela acesa.
+3. O item "O Android derrubou a VPN" ficava "Feito — confirmado por você"
+   para sempre depois do primeiro "Entendi", escondendo quedas novas. Na 6.3.4
+   o id do item leva a hora da última queda (`fechamentos-<ms>`): queda nova,
+   aviso de novo. Quando a queda foi pela tela de recentes, o texto manda
+   travar o Orbion com o cadeado.
+4. O diário anotava duas vezes "A tela do Orbion foi fechada na tela de
+   recentes" no mesmo segundo (14/11 09:26:37): agora ignora repetição em 5 s.
+5. Normais: fechamentos com importância 400 (VPN já desligada ou só a tela),
+   "camera boost" (VPN desligada), aviso "only an IP address" e o
+   "[warn] No lists of TLS groups" (seção 5.7).
+6. Recomendação à pessoa: travar o Orbion na tela de recentes (cadeado) e não
+   usar o "limpar tudo" com a VPN ligada.
 
 ## 6. Compilação e entrega
 
@@ -494,6 +520,12 @@ sempre com esta chave**:
   `orbion-release.jks` (ou o `orbion-release.jks.base64.txt`).
 
 ## 7. Status
+
+- v6.3.4 (19/11/2026): seção 5.8 (sentinela de 1 min, aviso de queda que
+  volta a cada queda nova, diário sem linha repetida). Enviada para a esteira
+  pelo servidor da Fortaleza (conector do painel): clone em
+  `/var/lib/fortaleza-painel/trabalho/Orbion-VPN`, `gh` com
+  `. /opt/fortaleza/ambiente-git.sh`.
 
 - v6.3.3 (19/11/2026): ícone novo (seção 4.1). Esteira execução 23 (análise
   sem avisos, 21 testes, manifesto e 16 KB ok); a esteira já pegou o Tor

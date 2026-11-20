@@ -286,9 +286,16 @@ class OrbionVpnService : VpnService() {
         super.onDestroy()
     }
 
+    @Volatile
+    private var ultimaTelaFechada = 0L
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         if (Painel.estado == Painel.Estado.CONECTADO || Painel.estado == Painel.Estado.CONECTANDO) {
+            // Algumas marcas avisam duas vezes no mesmo instante: anota uma só.
+            val agora = android.os.SystemClock.elapsedRealtime()
+            if (agora - ultimaTelaFechada < 5_000L) return
+            ultimaTelaFechada = agora
             Filas.avulso { Eventos.anotar(this, "A tela do Orbion foi fechada na tela de recentes. A VPN continua ligada.") }
         }
     }

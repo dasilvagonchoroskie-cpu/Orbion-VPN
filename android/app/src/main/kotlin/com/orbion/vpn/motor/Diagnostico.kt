@@ -203,10 +203,18 @@ object Diagnostico {
             return Item("fechamentos", "Quedas da VPN", "O Android não derrubou a VPN nos últimos 7 dias.", Gravidade.OK)
         }
         val ultimo = recentes.maxByOrNull { it.quando }!!
+        val dicaRecentes = if (ultimo.explicacao.contains("recentes")) {
+            "Trave o Orbion na tela de apps recentes (cadeado): assim o \"limpar tudo\" não fecha a VPN. "
+        } else {
+            ""
+        }
+        // O "Entendi" vale só até esta queda: se o Android derrubar a VPN de
+        // novo, o aviso volta (antes, um "Entendi" escondia as quedas novas).
         return Item(
-            "fechamentos", "O Android derrubou a VPN ${recentes.size} vez(es) em 7 dias",
+            "fechamentos-${ultimo.quando}", "O Android derrubou a VPN ${recentes.size} vez(es) em 7 dias",
             "A última foi em ${Eventos.hora(ultimo.quando)}: ${ultimo.explicacao}.\n\n" +
-                "O Orbion religou sozinho, mas o ideal é não cair. Faça os ajustes de bateria e da marca acima. " +
+                "O Orbion religou sozinho, mas o ideal é não cair. " + dicaRecentes +
+                "Faça também os ajustes de bateria e da marca acima. " +
                 "Os detalhes de cada queda ficam em Registros → Eventos.",
             Gravidade.ATENCAO, Acao.ABRIR_REGISTROS, "Ver detalhes",
             dispensar = "Entendi",
