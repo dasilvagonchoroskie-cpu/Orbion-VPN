@@ -521,6 +521,13 @@ sempre com esta chave**:
 
 ## 7. Status
 
+- **Assinatura automática ligada (19/11/2026, 23h):** os segredos
+  `ORBION_KEYSTORE_BASE64` e `ORBION_KEYSTORE_SENHA` foram gravados no GitHub
+  pelo servidor da Fortaleza (conector do painel). A esteira agora assina
+  sozinha com a chave dedicada (173bb0ba…), confere a impressão digital e
+  publica na release `apk-mais-recente`. Primeira: execução 25 (6.3.4,
+  versionCode 2085), conferida. Antes disso a 6.3.4 da execução 24 foi
+  assinada à mão e entregue no chat (SHA-256 dc6a1ab0…7a2b).
 - v6.3.4 (19/11/2026): seção 5.8 (sentinela de 1 min, aviso de queda que
   volta a cada queda nova, diário sem linha repetida). Enviada para a esteira
   pelo servidor da Fortaleza (conector do painel): clone em
