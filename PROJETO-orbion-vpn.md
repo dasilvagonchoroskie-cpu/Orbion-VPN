@@ -525,7 +525,12 @@ sempre com esta chave**:
   volta a cada queda nova, diário sem linha repetida). Enviada para a esteira
   pelo servidor da Fortaleza (conector do painel): clone em
   `/var/lib/fortaleza-painel/trabalho/Orbion-VPN`, `gh` com
-  `. /opt/fortaleza/ambiente-git.sh`.
+  `. /opt/fortaleza/ambiente-git.sh`. Esteira execução 24: sucesso (motor
+  Kotlin compilou, análise, testes, manifesto e 16 KB ok), versionCode 2084,
+  APKs com chave de depuração em `compilacao-interna`. Falta a assinatura
+  oficial: o `gh` do servidor tem permissão `repo`, então dá para gravar os
+  segredos `ORBION_KEYSTORE_BASE64`/`ORBION_KEYSTORE_SENHA` direto do
+  servidor quando o Evandro mandar a chave — a esteira passa a assinar sozinha.
 
 - v6.3.3 (19/11/2026): ícone novo (seção 4.1). Esteira execução 23 (análise
   sem avisos, 21 testes, manifesto e 16 KB ok); a esteira já pegou o Tor
